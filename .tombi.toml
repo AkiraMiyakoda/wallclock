@@ -1,0 +1,7 @@
+toml-version = "v1.0.0"
+
+[files]
+respect-ignore-files = false
+
+[format.rules]
+indent-width = 4

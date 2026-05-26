@@ -1,0 +1,9 @@
+max_width = 119
+hard_tabs = false
+tab_spaces = 4
+edition = "2024"
+imports_granularity = "Item"
+fn_params_layout = "Compressed"
+hex_literal_case = "Lower"
+reorder_impl_items = true
+group_imports = "StdExternalCrate"

@@ -1,0 +1,138 @@
+// Copyright © 2026 Akira Miyakoda
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+use std::time::Duration;
+
+use anyhow::bail;
+use base64::prelude::*;
+use chrono::Utc;
+use hmac::Hmac;
+use hmac::KeyInit;
+use hmac::Mac;
+use log::error;
+use log::info;
+use reqwest::RequestBuilder;
+use reqwest::Url;
+use reqwest::header;
+use serde::Deserialize;
+use sha2::Sha256;
+use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
+use tokio::time::interval;
+use tokio::try_join;
+use uuid::Uuid;
+
+use crate::Update;
+use crate::WEB_CLIENT;
+use crate::settings;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Message {
+    status_code: i32,
+    message: String,
+    body: Option<Body>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "deviceType")]
+enum Body {
+    WoIOSensor(WoIOSensor),
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct WoIOSensor {
+    pub temperature: f64,
+    pub humidity: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SwitchBotData {
+    pub indoor: WoIOSensor,
+    pub outdoor: WoIOSensor,
+    pub tank: WoIOSensor,
+}
+
+pub(super) async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
+    let mut interval = interval(Duration::from_mins(1));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut last_tick: i64 = 0;
+
+    loop {
+        interval.tick().await;
+
+        let tick = Utc::now().timestamp() / 180;
+        if tick == last_tick {
+            continue;
+        }
+
+        match inquire().await {
+            Ok(data) => {
+                info!("Switchbot updated");
+
+                last_tick = tick;
+                sender.send(Update::SwitchBot(data)).await?;
+            }
+            Err(e) => {
+                error!("Failed to update SwitchBot data: {e:?}");
+            }
+        }
+    }
+}
+
+async fn inquire() -> anyhow::Result<SwitchBotData> {
+    const BASE_URL: &str = "https://api.switch-bot.com";
+
+    let settings::Switchbot { devices, token, secret } = settings::switchbot();
+
+    let task = async |device_id: &str| {
+        let url = Url::parse(BASE_URL)?;
+        let url = url.join(&format!("/v1.1/devices/{device_id}/status"))?;
+
+        let res = WEB_CLIENT
+            .get(url)
+            .auth_headers(token, secret)
+            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+            .send()
+            .await?;
+        let msg: Message = res.json().await?;
+        if msg.status_code != 100 {
+            bail!("Switchbot API error: {} {}", msg.status_code, msg.message);
+        }
+        let Some(body) = msg.body else {
+            bail!("Invalid message format");
+        };
+
+        anyhow::Ok(body)
+    };
+    let results = try_join!(task(&devices.0), task(&devices.1), task(&devices.2))?;
+    let (Body::WoIOSensor(indoor), Body::WoIOSensor(outdoor), Body::WoIOSensor(tank)) = results;
+
+    Ok(SwitchBotData { indoor, outdoor, tank })
+}
+
+trait AuthHeaders {
+    fn auth_headers(self, token: &str, secret: &str) -> Self;
+}
+
+impl AuthHeaders for RequestBuilder {
+    fn auth_headers(self, token: &str, secret: &str) -> Self {
+        let nonce = Uuid::new_v4().to_string();
+        let t = Utc::now().timestamp_millis().to_string();
+        let sign = {
+            let mut hmac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("Bad secret");
+            hmac.update(token.as_bytes());
+            hmac.update(t.as_bytes());
+            hmac.update(nonce.as_bytes());
+            BASE64_STANDARD.encode(hmac.finalize().into_bytes())
+        };
+
+        self.header("Authorization", token)
+            .header("t", t)
+            .header("nonce", nonce)
+            .header("sign", sign)
+    }
+}

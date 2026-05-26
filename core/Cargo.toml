@@ -1,0 +1,43 @@
+[package]
+name = "wallclock-core"
+version = "0.1.0"
+edition = "2024"
+
+[workspace.lints.clippy]
+complexity = "warn"
+perf = "warn"
+style = "warn"
+suspicious = "deny"
+
+[dependencies]
+anyhow = "1.0.102"
+base64 = "0.22.1"
+chrono = "0.4.44"
+cosmic-text = "0.19.0"
+hmac = "0.13.0"
+image = "0.25.10"
+itertools = "0.14.0"
+log = "0.4.30"
+logger = { git = "https://github.com/AkiraMiyakoda/rust-utils.git", branch = "main" }
+mimalloc = "0.1.52"
+mime = "0.3.17"
+num-traits = "0.2.19"
+reqwest = { version = "0.13.3", features = [
+    "brotli",
+    "deflate",
+    "gzip",
+    "json",
+    "zstd"
+] }
+serde = { version = "1.0.228", features = ["derive"] }
+sha2 = "0.11.0"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+toml = "1.1.2"
+uuid = { version = "1.23.1", features = ["v4"] }
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+strip = "symbols"
+lto = "fat"

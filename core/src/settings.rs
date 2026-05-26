@@ -1,0 +1,41 @@
+// Copyright © 2026 Akira Miyakoda
+//
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+use std::borrow::Cow;
+use std::env;
+use std::fs;
+use std::sync::LazyLock;
+
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct Settings {
+    switchbot: Switchbot,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Switchbot {
+    pub token: String,
+    pub secret: String,
+    pub devices: (String, String, String),
+}
+
+impl Settings {
+    pub fn load() -> anyhow::Result<Self> {
+        const PATH_ENV: &str = "CONFIG_PATH";
+        const DEFAULT_PATH: &str = "/run/secrets/settings.toml";
+
+        let path = env::var(PATH_ENV).map_or(DEFAULT_PATH.into(), Cow::from);
+        let toml = fs::read_to_string(path.as_ref())?;
+        let settings: Settings = toml::from_str(&toml)?;
+        Ok(settings)
+    }
+}
+
+static INSTANCE: LazyLock<Settings> = LazyLock::new(|| Settings::load().expect("Failed to load settings"));
+
+pub fn switchbot() -> &'static Switchbot {
+    &INSTANCE.switchbot
+}

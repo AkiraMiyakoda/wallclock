@@ -1,0 +1,36 @@
+# Copyright © 2026 Akira Miyakoda
+#
+# This software is released under the MIT License.
+# https://opensource.org/licenses/MIT
+
+name: wallclock
+
+services:
+  core:
+    build: ./core
+    container_name: core
+    hostname: core
+    restart: always
+    networks:
+      - wallclock-link
+    secrets:
+      - settings.toml
+    environment:
+      - TZ=Asia/Tokyo
+      - RUST_LOG=info
+      - LANG=en_US.utf8
+    volumes:
+      - /usr/share/zoneinfo/Asia/Tokyo:/etc/localtime:ro
+    devices:
+      - /dev/fb0:/dev/fb0
+    stop_grace_period: 0.5s
+    tty: true
+
+networks:
+  wallclock-link:
+    external: false
+    name: wallclock.internal
+
+secrets:
+  settings.toml:
+    file: ./.secrets/settings.toml
