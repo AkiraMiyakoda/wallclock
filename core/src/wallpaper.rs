@@ -17,9 +17,9 @@ use tokio::task::block_in_place;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
 
+use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
-use crate::WEB_CLIENT;
 
 #[derive(Debug, Deserialize)]
 struct Message {
@@ -73,7 +73,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     const BASE_URL: &str = "https://www.bing.com/";
 
     // Get the metadata of Bing's picture of the day
-    let msg: Message = WEB_CLIENT.get(METADATA_URL).send().await?.json().await?;
+    let msg: Message = REST_CLIENT.get(METADATA_URL).send().await?.json().await?;
     let Some(row) = msg.images.into_iter().next() else {
         return Err(anyhow!("Metadata is empty"));
     };
@@ -81,7 +81,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     // Get the picture
     let url = Url::parse(BASE_URL)?;
     let url = url.join(&format!("{}_UHD.jpg", row.urlbase))?;
-    let data = WEB_CLIENT.get(url).send().await?.bytes().await?;
+    let data = REST_CLIENT.get(url).send().await?.bytes().await?;
 
     // Decode and resize the picture
     block_in_place(|| {

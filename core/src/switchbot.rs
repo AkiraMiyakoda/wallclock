@@ -24,8 +24,8 @@ use tokio::time::interval;
 use tokio::try_join;
 use uuid::Uuid;
 
+use crate::REST_CLIENT;
 use crate::Update;
-use crate::WEB_CLIENT;
 use crate::settings;
 
 #[derive(Debug, Deserialize)]
@@ -92,7 +92,7 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
         let url = Url::parse(BASE_URL)?;
         let url = url.join(&format!("/v1.1/devices/{device_id}/status"))?;
 
-        let res = WEB_CLIENT
+        let res = REST_CLIENT
             .get(url)
             .auth_headers(token, secret)
             .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
