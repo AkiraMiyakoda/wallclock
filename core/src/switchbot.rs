@@ -8,16 +8,12 @@ use std::time::Duration;
 use anyhow::bail;
 use base64::prelude::*;
 use chrono::Utc;
-use hmac::Hmac;
-use hmac::KeyInit;
-use hmac::Mac;
 use log::error;
 use log::info;
 use reqwest::RequestBuilder;
 use reqwest::Url;
 use reqwest::header;
 use serde::Deserialize;
-use sha2::Sha256;
 use tokio::sync::mpsc;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
@@ -123,11 +119,11 @@ impl AuthHeaders for RequestBuilder {
         let nonce = Uuid::new_v4().to_string();
         let t = Utc::now().timestamp_millis().to_string();
         let sign = {
-            let mut hmac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("Bad secret");
+            let mut hmac = hmac_sha256::HMAC::new(secret.as_bytes());
             hmac.update(token.as_bytes());
             hmac.update(t.as_bytes());
             hmac.update(nonce.as_bytes());
-            BASE64_STANDARD.encode(hmac.finalize().into_bytes())
+            BASE64_STANDARD.encode(hmac.finalize())
         };
 
         self.header("Authorization", token)
