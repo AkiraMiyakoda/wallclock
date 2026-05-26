@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: /core
+        working-directory: ./core
     steps:
       - name: Checkout Crate
         uses: actions/checkout@v4
