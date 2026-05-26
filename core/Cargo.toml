@@ -22,7 +22,7 @@ logger = { git = "https://github.com/AkiraMiyakoda/rust-utils.git", branch = "ma
 mimalloc = "0.1.52"
 mime = "0.3.17"
 num-traits = "0.2.19"
-reqwest = { version = "0.13.3", features = [
+reqwest = { version = "0.13.4", features = [
     "brotli",
     "deflate",
     "gzip",
