@@ -1,0 +1,26 @@
+name: Rust
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+  push:
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: /core
+    steps:
+      - name: Checkout Crate
+        uses: actions/checkout@v4
+      - name: Set Toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install clippy
+        run: rustup component add clippy
+      - name: cargo check
+        run: cargo check
+      - name: cargo clippy
+        run: cargo clippy

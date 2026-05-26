@@ -1,0 +1,20 @@
+name: TOML Validation
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+  push:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - uses: actions/checkout@v4
+      - uses: tombi-toml/setup-tombi@v1
+      - name: Validate TOML files
+        run: tombi lint
