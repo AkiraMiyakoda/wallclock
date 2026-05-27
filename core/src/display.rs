@@ -3,8 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -20,7 +18,10 @@ use cosmic_text::SwashCache;
 use cosmic_text::fontdb::Source;
 use image::Rgba;
 use image::RgbaImage;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
+use tokio::task::block_in_place;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
@@ -56,66 +57,68 @@ impl DrawContext {
     }
 
     async fn draw(&mut self) -> anyhow::Result<()> {
-        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 200]);
-        const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
+        block_in_place(|| {
+            const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 200]);
+            const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
-        // Draw wallpaper
-        if let Some(wallpaper) = &self.wallpapar {
-            self.back_buffer.copy_from_slice(wallpaper.as_ref());
-        } else {
-            self.back_buffer.fill(0);
-        }
+            // Draw wallpaper
+            if let Some(wallpaper) = &self.wallpapar {
+                self.back_buffer.copy_from_slice(wallpaper.as_ref());
+            } else {
+                self.back_buffer.fill(0);
+            }
 
-        // Draw time and date
-        let datetime = Local::now();
+            // Draw time and date
+            let datetime = Local::now();
 
-        self.fill_rect(50, 50, 880, 670, RECT_COLOR);
-        self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
+            self.fill_rect(50, 50, 880, 670, RECT_COLOR);
+            self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
 
-        let lines = (
-            datetime.format("%H").to_string(),
-            datetime.format("%M").to_string(),
-            datetime.format("%S").to_string(),
-        );
-        self.draw_text(&lines.0, 480, 70, 260, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.1, 480, 330, 260, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.2, 560, 435, 150, TEXT_COLOR, TextAnchor::TopLeft);
+            let lines = (
+                datetime.format("%H").to_string(),
+                datetime.format("%M").to_string(),
+                datetime.format("%S").to_string(),
+            );
+            self.draw_text(&lines.0, 480, 70, 260, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text(&lines.1, 480, 330, 260, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text(&lines.2, 560, 435, 150, TEXT_COLOR, TextAnchor::TopLeft);
 
-        let lines = (
-            datetime.format("%b %e, %Y").to_string().to_ascii_uppercase(),
-            datetime.format("%a").to_string().to_ascii_uppercase(),
-        );
-        self.draw_text(&lines.0, 2400, 100, 140, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.1, 2400, 280, 140, TEXT_COLOR, TextAnchor::TopRight);
+            let lines = (
+                datetime.format("%b %e, %Y").to_string().to_ascii_uppercase(),
+                datetime.format("%a").to_string().to_ascii_uppercase(),
+            );
+            self.draw_text(&lines.0, 2400, 100, 140, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text(&lines.1, 2400, 280, 140, TEXT_COLOR, TextAnchor::TopRight);
 
-        // Draw SwitchBot measurements
-        self.fill_rect(50, 1025, 1670, 1550, RECT_COLOR);
+            // Draw SwitchBot measurements
+            self.fill_rect(50, 1025, 1670, 1550, RECT_COLOR);
 
-        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
-            let lines = (format!("{:.1}", indoor.temperature), format!("{:}", indoor.humidity));
-            self.draw_text("IN", 200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+            if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
+                let lines = (format!("{:.1}", indoor.temperature), format!("{:}", indoor.humidity));
+                self.draw_text("IN", 200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.0, 430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("°C", 540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text(&lines.1, 430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("%", 540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
 
-            let lines = (format!("{:.1}", outdoor.temperature), format!("{:}", outdoor.humidity));
-            self.draw_text("OUT", 700, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 930, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 1040, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 930, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 1040, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+                let lines = (format!("{:.1}", outdoor.temperature), format!("{:}", outdoor.humidity));
+                self.draw_text("OUT", 700, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.0, 930, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("°C", 1040, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text(&lines.1, 930, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("%", 1040, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
 
-            let lines = (format!("{:.1}", tank.temperature), format!("{:}", tank.humidity));
-            self.draw_text("CAGE", 1200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 1430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 1540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 1430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 1540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
-        }
+                let lines = (format!("{:.1}", tank.temperature), format!("{:}", tank.humidity));
+                self.draw_text("CAGE", 1200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.0, 1430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("°C", 1540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text(&lines.1, 1430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
+                self.draw_text("%", 1540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+            }
+        });
 
         // Flip
-        self.flip()?;
+        self.flip().await?;
 
         Ok(())
     }
@@ -162,9 +165,9 @@ impl DrawContext {
         });
     }
 
-    fn flip(&mut self) -> anyhow::Result<()> {
-        let mut dev = OpenOptions::new().write(true).open("/dev/fb0")?;
-        dev.write_all(&self.back_buffer)?;
+    async fn flip(&mut self) -> anyhow::Result<()> {
+        let mut dev = OpenOptions::new().write(true).open("/dev/fb0").await?;
+        dev.write_all(&self.back_buffer).await?;
 
         Ok(())
     }
