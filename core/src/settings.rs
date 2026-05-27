@@ -8,6 +8,7 @@ use std::env;
 use std::fs;
 use std::sync::LazyLock;
 
+use compact_str::CompactString;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -19,7 +20,7 @@ struct Settings {
 pub struct Switchbot {
     pub token: String,
     pub secret: String,
-    pub devices: (String, String, String),
+    pub devices: (CompactString, CompactString, CompactString),
 }
 
 impl Settings {

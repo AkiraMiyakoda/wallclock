@@ -7,6 +7,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use chrono::Local;
+use compact_str::ToCompactString;
+use compact_str::format_compact;
 use cosmic_text::Align;
 use cosmic_text::Attrs;
 use cosmic_text::Buffer;
@@ -75,17 +77,17 @@ impl DrawContext {
             self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
 
             let lines = (
-                datetime.format("%H").to_string(),
-                datetime.format("%M").to_string(),
-                datetime.format("%S").to_string(),
+                datetime.format("%H").to_compact_string(),
+                datetime.format("%M").to_compact_string(),
+                datetime.format("%S").to_compact_string(),
             );
             self.draw_text(&lines.0, 480, 70, 260, TEXT_COLOR, TextAnchor::TopRight);
             self.draw_text(&lines.1, 480, 330, 260, TEXT_COLOR, TextAnchor::TopRight);
             self.draw_text(&lines.2, 560, 435, 150, TEXT_COLOR, TextAnchor::TopLeft);
 
             let lines = (
-                datetime.format("%b %e, %Y").to_string().to_ascii_uppercase(),
-                datetime.format("%a").to_string().to_ascii_uppercase(),
+                datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
+                datetime.format("%a").to_compact_string().to_ascii_uppercase(),
             );
             self.draw_text(&lines.0, 2400, 100, 140, TEXT_COLOR, TextAnchor::TopRight);
             self.draw_text(&lines.1, 2400, 280, 140, TEXT_COLOR, TextAnchor::TopRight);
@@ -94,21 +96,30 @@ impl DrawContext {
             self.fill_rect(50, 1025, 1670, 1550, RECT_COLOR);
 
             if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
-                let lines = (format!("{:.1}", indoor.temperature), format!("{:}", indoor.humidity));
+                let lines = (
+                    format_compact!("{:.1}", indoor.temperature),
+                    format_compact!("{:}", indoor.humidity),
+                );
                 self.draw_text("IN", 200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
                 self.draw_text(&lines.0, 430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text("°C", 540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text(&lines.1, 430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text("%", 540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
 
-                let lines = (format!("{:.1}", outdoor.temperature), format!("{:}", outdoor.humidity));
+                let lines = (
+                    format_compact!("{:.1}", outdoor.temperature),
+                    format_compact!("{:}", outdoor.humidity),
+                );
                 self.draw_text("OUT", 700, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
                 self.draw_text(&lines.0, 930, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text("°C", 1040, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text(&lines.1, 930, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text("%", 1040, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
 
-                let lines = (format!("{:.1}", tank.temperature), format!("{:}", tank.humidity));
+                let lines = (
+                    format_compact!("{:.1}", tank.temperature),
+                    format_compact!("{:}", tank.humidity),
+                );
                 self.draw_text("CAGE", 1200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
                 self.draw_text(&lines.0, 1430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
                 self.draw_text("°C", 1540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);

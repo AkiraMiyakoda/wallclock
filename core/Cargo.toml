@@ -13,6 +13,7 @@ suspicious = "deny"
 anyhow = "1.0.102"
 base64 = "0.22.1"
 chrono = "0.4.44"
+compact_str = { version = "0.9.1", features = ["serde"] }
 cosmic-text = "0.19.0"
 hmac-sha256 = "1.1.14"
 image = "0.25.10"
