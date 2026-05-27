@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
+use chrono::TimeDelta;
 use chrono::Utc;
 use image::imageops::FilterType;
 use log::error;
@@ -49,7 +50,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        let tick = Utc::now().timestamp() / 3600;
+        let tick = Utc::now().timestamp() / TimeDelta::hours(3).num_seconds();
         if tick == last_tick {
             continue;
         }
