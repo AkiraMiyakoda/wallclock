@@ -48,7 +48,7 @@ struct DrawContext {
 
 impl DrawContext {
     fn new() -> anyhow::Result<Self> {
-        let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Bold.ttf")))];
+        let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Regular.ttf")))];
         Ok(Self {
             back_buffer: RgbaImage::new(SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1),
             font_system: FontSystem::new_with_fonts(fonts),
