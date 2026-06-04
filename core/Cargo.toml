@@ -31,7 +31,7 @@ reqwest = {
     features = ["brotli", "deflate", "gzip", "json", "zstd"]
 }
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["fs", "macros", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"
 uuid = { version = "1.23.2", features = ["v4"] }
 
