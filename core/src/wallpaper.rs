@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use anyhow::anyhow;
+use anyhow::bail;
 use chrono::TimeDelta;
 use chrono::Utc;
 use image::RgbaImage;
@@ -74,7 +74,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     // Get the metadata of Bing's picture of the day
     let msg: Message = REST_CLIENT.get(METADATA_URL).send().await?.json().await?;
     let Some(row) = msg.images.into_iter().next() else {
-        return Err(anyhow!("Metadata is empty"));
+        bail!("Metadata is empty");
     };
 
     // Get the picture

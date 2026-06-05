@@ -20,6 +20,7 @@ use cosmic_text::Metrics;
 use cosmic_text::Shaping;
 use cosmic_text::SwashCache;
 use cosmic_text::fontdb::Source;
+use format::WithCommas;
 use image::Rgba;
 use image::RgbaImage;
 use log::error;
@@ -28,14 +29,18 @@ use tokio::task::block_in_place;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
+use crate::openweather::OpenWeatherData;
 use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
 
 #[derive(Debug, Clone, Copy)]
 enum TextAnchor {
     TopLeft,
+    #[allow(dead_code)]
+    TopCenter,
     TopRight,
     BottomLeft,
+    BottomCenter,
     BottomRight,
 }
 
@@ -44,9 +49,6 @@ struct DrawContext {
     back_buffer: RgbaImage,
     font_system: FontSystem,
     swash_cache: SwashCache,
-
-    switchbot: Option<SwitchBotData>,
-    wallpapar: Option<WallpaperData>,
 }
 
 impl DrawContext {
@@ -56,18 +58,16 @@ impl DrawContext {
             back_buffer: RgbaImage::new(SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1),
             font_system: FontSystem::new_with_fonts(fonts),
             swash_cache: SwashCache::new(),
-            switchbot: None,
-            wallpapar: None,
         })
     }
 
-    fn draw(&mut self) -> anyhow::Result<()> {
+    fn draw(&mut self, bundle: &DataBundle) -> anyhow::Result<()> {
         const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 200]);
         const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
         // Draw wallpaper
-        if let Some(wallpaper) = &self.wallpapar {
-            self.back_buffer.copy_from_slice(&wallpaper.image.as_raw());
+        if let Some(wallpaper) = &bundle.wallpapar {
+            self.back_buffer.copy_from_slice(wallpaper.image.as_raw());
         } else {
             self.back_buffer.fill(0);
         }
@@ -97,36 +97,53 @@ impl DrawContext {
         // Draw SwitchBot measurements
         self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
 
-        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
+        if let Some(data) = &bundle.switchbot {
             let lines = (
-                format_compact!("{:.1}", indoor.temperature),
-                format_compact!("{:}", indoor.humidity),
+                format_compact!("{:.1}", data.indoor.temperature),
+                format_compact!("{:}", data.indoor.humidity),
             );
             self.draw_text("IN", 160, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 370, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 410, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 370, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 430, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 370, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 410, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 370, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 430, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                format_compact!("{:.1}", outdoor.temperature),
-                format_compact!("{:}", outdoor.humidity),
+                format_compact!("{:.1}", data.outdoor.temperature),
+                format_compact!("{:}", data.outdoor.humidity),
             );
             self.draw_text("OUT", 640, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 850, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 890, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 850, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 910, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 850, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 890, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 850, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 910, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                format_compact!("{:.1}", tank.temperature),
-                format_compact!("{:}", tank.humidity),
+                format_compact!("{:.1}", data.tank.temperature),
+                format_compact!("{:}", data.tank.humidity),
             );
             self.draw_text("CAGE", 1110, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 1320, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 1370, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 1330, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 1390, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 1320, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 1370, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 1330, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 1390, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+        }
+
+        // Draw OpenWeather measurements
+        self.fill_rect(1600, 960, 2510, 1550, RECT_COLOR);
+
+        if let Some(data) = &bundle.openweather {
+            self.fill_image(1955, 990, &data.icon);
+
+            let lines = (
+                data.description.to_ascii_uppercase(),
+                format_compact!("{}", WithCommas::from(data.pressure)),
+            );
+
+            self.draw_text(&lines.0, 2055, 1310, 80, TEXT_COLOR, TextAnchor::BottomCenter);
+
+            self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
         // Flip
@@ -146,6 +163,25 @@ impl DrawContext {
             for x in l..r {
                 let pixel = self.back_buffer.get_pixel_mut(x, y);
                 *pixel = alphablend(*pixel, color);
+            }
+        }
+    }
+
+    fn fill_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
+        const RANGE_X: Range<u32> = 0..SCREEN_DIMENSIONS.0;
+        const RANGE_Y: Range<u32> = 0..SCREEN_DIMENSIONS.0;
+
+        for bx in 0..image.width() {
+            for by in 0..image.height() {
+                let x = x + bx;
+                let y = y + by;
+
+                if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) {
+                    continue;
+                }
+
+                let pixel = self.back_buffer.get_pixel_mut(x, y);
+                *pixel = alphablend(*pixel, *image.get_pixel(bx, by));
             }
         }
     }
@@ -170,11 +206,12 @@ impl DrawContext {
 
             let x = match anchor {
                 TextAnchor::TopLeft | TextAnchor::BottomLeft => x as i32 + bx,
+                TextAnchor::TopCenter | TextAnchor::BottomCenter => x as i32 - width / 2 + bx,
                 TextAnchor::TopRight | TextAnchor::BottomRight => x as i32 - width + bx,
             };
             let y = match anchor {
-                TextAnchor::TopLeft | TextAnchor::TopRight => y as i32 + by,
-                TextAnchor::BottomLeft | TextAnchor::BottomRight => y as i32 - height + by,
+                TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y as i32 + by,
+                TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y as i32 - height + by,
             };
 
             if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) || w != 1 || h != 1 {
@@ -205,17 +242,35 @@ fn alphablend(src: Rgba<u8>, dst: Rgba<u8>) -> Rgba<u8> {
     ])
 }
 
+#[derive(Debug)]
+struct DataBundle {
+    switchbot: Option<SwitchBotData>,
+    openweather: Option<OpenWeatherData>,
+    wallpapar: Option<WallpaperData>,
+}
+
+impl DataBundle {
+    fn new() -> Self {
+        Self {
+            switchbot: None,
+            openweather: None,
+            wallpapar: None,
+        }
+    }
+}
 pub async fn worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     let mut context = DrawContext::new()?;
+    let mut bundle = DataBundle::new();
 
     while let Some(update) = receiver.recv().await {
         match update {
             Update::Tick => {}
-            Update::SwitchBot(data) => context.switchbot = Some(data),
-            Update::Wallpaper(data) => context.wallpapar = Some(data),
+            Update::SwitchBot(data) => bundle.switchbot = Some(data),
+            Update::OpenWeather(data) => bundle.openweather = Some(data),
+            Update::Wallpaper(data) => bundle.wallpapar = Some(data),
         }
 
-        if let Err(e) = block_in_place(|| context.draw()) {
+        if let Err(e) = block_in_place(|| context.draw(&bundle)) {
             error!("Failed to draw: {e:?}")
         }
     }

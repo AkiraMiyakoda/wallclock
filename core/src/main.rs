@@ -10,11 +10,13 @@ use reqwest::Client;
 use tokio::select;
 use tokio::sync::mpsc;
 
+use crate::openweather::OpenWeatherData;
 use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
 
 mod display;
 mod image;
+mod openweather;
 mod settings;
 mod switchbot;
 mod tick;
@@ -24,6 +26,7 @@ mod wallpaper;
 enum Update {
     Tick,
     SwitchBot(SwitchBotData),
+    OpenWeather(OpenWeatherData),
     Wallpaper(WallpaperData),
 }
 
@@ -44,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
     select! {
         result = tick::worker(&sender) => result,
         result = switchbot::worker(&sender) => result,
+        result = openweather::worker(&sender) => result,
         result = wallpaper::worker(&sender) => result,
         result = display::worker(receiver) => result,
     }

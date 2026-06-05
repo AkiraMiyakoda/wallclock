@@ -14,6 +14,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct Settings {
     switchbot: Switchbot,
+    openweather: OpenWeather,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -21,6 +22,13 @@ pub struct Switchbot {
     pub token: String,
     pub secret: String,
     pub devices: (CompactString, CompactString, CompactString),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenWeather {
+    pub lat: f32,
+    pub lon: f32,
+    pub api_key: String,
 }
 
 impl Settings {
@@ -39,4 +47,8 @@ static INSTANCE: LazyLock<Settings> = LazyLock::new(|| Settings::load().expect("
 
 pub fn switchbot() -> &'static Switchbot {
     &INSTANCE.switchbot
+}
+
+pub fn openweather() -> &'static OpenWeather {
+    &INSTANCE.openweather
 }
