@@ -88,7 +88,8 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
 
         let (width, height) = (image.width(), image.height());
-        let image = RgbaImage::from_raw(width, height, image.into_rgba8().into_raw_bgra()).unwrap();
+        let raw = image.into_rgba8().into_raw_bgra();
+        let image = RgbaImage::from_raw(width, height, raw).unwrap();
 
         Ok(WallpaperData { image })
     })

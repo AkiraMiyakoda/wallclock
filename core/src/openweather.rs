@@ -262,8 +262,10 @@ fn id_to_icon(id: i32, is_night: bool) -> anyhow::Result<RgbaImage> {
         _ => panic!("Bad icon name"),
     };
     let image = image::load_from_memory(data)?;
+
     let (width, height) = (image.width(), image.height());
-    let image = RgbaImage::from_raw(width, height, image.into_rgba8().into_raw_bgra()).unwrap();
+    let raw = image.into_rgba8().into_raw_bgra();
+    let image = RgbaImage::from_raw(width, height, raw).unwrap();
 
     Ok(image)
 }
