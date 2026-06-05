@@ -133,7 +133,7 @@ impl DrawContext {
         self.fill_rect(1600, 900, 2510, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.openweather {
-            self.fill_image(1927, 930, &data.icon);
+            self.draw_image(1927, 930, &data.icon);
 
             let lines = (
                 data.description.to_ascii_uppercase(),
@@ -167,7 +167,7 @@ impl DrawContext {
         }
     }
 
-    fn fill_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
+    fn draw_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
         const RANGE_X: Range<u32> = 0..SCREEN_DIMENSIONS.0;
         const RANGE_Y: Range<u32> = 0..SCREEN_DIMENSIONS.0;
 
@@ -225,19 +225,19 @@ impl DrawContext {
 }
 
 #[inline]
-fn alphablend_channel(src: u8, dst: u8, alpha: u8) -> u8 {
-    let src = src as u32;
-    let dst = dst as u32;
+fn alphablend_channel(back: u8, front: u8, alpha: u8) -> u8 {
+    let back = back as u32;
+    let front = front as u32;
     let alpha = alpha as u32;
-    ((src * (255 - alpha) / 255) + (dst * alpha / 255)).clamp(0, 255) as u8
+    ((back * (255 - alpha) / 255) + (front * alpha / 255)).clamp(0, 255) as u8
 }
 
 #[inline]
-fn alphablend(src: Rgba<u8>, dst: Rgba<u8>) -> Rgba<u8> {
+fn alphablend(back: Rgba<u8>, front: Rgba<u8>) -> Rgba<u8> {
     Rgba([
-        alphablend_channel(src[0], dst[0], dst[3]),
-        alphablend_channel(src[1], dst[1], dst[3]),
-        alphablend_channel(src[2], dst[2], dst[3]),
+        alphablend_channel(back[0], front[0], front[3]),
+        alphablend_channel(back[1], front[1], front[3]),
+        alphablend_channel(back[2], front[2], front[3]),
         255,
     ])
 }
