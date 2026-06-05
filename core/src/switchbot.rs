@@ -41,7 +41,7 @@ enum Body {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct WoIOSensor {
-    pub temperature: f64,
+    pub temperature: f32,
     pub humidity: i32,
 }
 

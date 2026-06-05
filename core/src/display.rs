@@ -95,7 +95,7 @@ impl DrawContext {
         // Draw SwitchBot measurements
         self.fill_rect(50, 1025, 1670, 1550, RECT_COLOR);
 
-        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
+        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot.clone() {
             let lines = (
                 format_compact!("{:.1}", indoor.temperature),
                 format_compact!("{:}", indoor.humidity),
@@ -149,17 +149,17 @@ impl DrawContext {
     }
 
     fn draw_text(&mut self, text: &str, x: u32, y: u32, size: u32, color: Color, anchor: TextAnchor) {
-        let align = match anchor {
-            TextAnchor::TopLeft => Align::Left,
-            TextAnchor::TopRight => Align::Right,
-        };
-
         let metrics = Metrics::new(size as f32, size as f32 * 1.2);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut buffer = buffer.borrow_with(&mut self.font_system);
 
-        buffer.set_size(Some(SCREEN_DIMENSIONS.0 as f32), None);
-        buffer.set_text(text, &Attrs::new(), Shaping::Advanced, Some(align));
+        buffer.set_text(text, &Attrs::new(), Shaping::Advanced, Some(Align::Left));
+
+        let width = buffer
+            .layout_runs()
+            .map(|run| run.line_w.ceil() as i32)
+            .max()
+            .unwrap_or(0);
 
         buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
             const RANGE_X: Range<i32> = 0..SCREEN_DIMENSIONS.0 as i32;
@@ -167,7 +167,7 @@ impl DrawContext {
 
             let (x, y) = match anchor {
                 TextAnchor::TopLeft => (x as i32 + bx, y as i32 + by),
-                TextAnchor::TopRight => (x as i32 - SCREEN_DIMENSIONS.0 as i32 + bx, y as i32 + by),
+                TextAnchor::TopRight => (x as i32 - width + bx, y as i32 + by),
             };
             if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) || w != 1 || h != 1 {
                 return;
