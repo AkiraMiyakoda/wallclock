@@ -67,7 +67,7 @@ impl DrawContext {
 
         // Draw wallpaper
         if let Some(wallpaper) = &self.wallpapar {
-            self.back_buffer.copy_from_slice(wallpaper.as_ref());
+            self.back_buffer.copy_from_slice(&wallpaper.image.as_raw());
         } else {
             self.back_buffer.fill(0);
         }

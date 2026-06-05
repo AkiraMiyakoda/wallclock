@@ -14,6 +14,7 @@ use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
 
 mod display;
+mod image;
 mod settings;
 mod switchbot;
 mod tick;

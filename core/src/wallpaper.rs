@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use chrono::TimeDelta;
 use chrono::Utc;
+use image::RgbaImage;
 use image::imageops::FilterType;
 use log::error;
 use log::info;
@@ -21,6 +22,7 @@ use tokio::time::interval;
 use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
+use crate::image::IntoBgra8;
 
 #[derive(Debug, Deserialize)]
 struct Message {
@@ -33,12 +35,8 @@ struct ImageRow {
 }
 
 #[derive(Debug)]
-pub struct WallpaperData(Vec<u8>);
-
-impl AsRef<Vec<u8>> for WallpaperData {
-    fn as_ref(&self) -> &Vec<u8> {
-        &self.0
-    }
+pub struct WallpaperData {
+    pub image: RgbaImage,
 }
 
 pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
@@ -87,12 +85,9 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     // Decode and resize the picture
     block_in_place(|| {
         let (width, height) = SCREEN_DIMENSIONS;
+        let image = image::load_from_memory(&data)?;
+        let image = image.resize_to_fill(width, height, FilterType::Lanczos3).into_bgra8();
 
-        Ok(WallpaperData(
-            image::load_from_memory(&data)?
-                .resize_to_fill(width, height, FilterType::Lanczos3)
-                .into_rgba8()
-                .into_raw_bgra(),
-        ))
+        Ok(WallpaperData { image })
     })
 }
