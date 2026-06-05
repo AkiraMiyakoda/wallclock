@@ -53,7 +53,7 @@ struct DrawContext {
 
 impl DrawContext {
     fn new() -> anyhow::Result<Self> {
-        let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Regular.ttf")))];
+        let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Bold.ttf")))];
         Ok(Self {
             back_buffer: RgbaImage::new(SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1),
             font_system: FontSystem::new_with_fonts(fonts),
@@ -130,17 +130,17 @@ impl DrawContext {
         }
 
         // Draw OpenWeather measurements
-        self.fill_rect(1600, 960, 2510, 1550, RECT_COLOR);
+        self.fill_rect(1600, 900, 2510, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.openweather {
-            self.fill_image(1955, 990, &data.icon);
+            self.fill_image(1927, 930, &data.icon);
 
             let lines = (
                 data.description.to_ascii_uppercase(),
                 format_compact!("{}", WithCommas::from(data.pressure)),
             );
 
-            self.draw_text(&lines.0, 2055, 1310, 80, TEXT_COLOR, TextAnchor::BottomCenter);
+            self.draw_text(&lines.0, 2055, 1330, 80, TEXT_COLOR, TextAnchor::BottomCenter);
 
             self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
