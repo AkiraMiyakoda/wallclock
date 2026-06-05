@@ -15,7 +15,6 @@ use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
 
 mod display;
-mod image;
 mod openweather;
 mod settings;
 mod switchbot;

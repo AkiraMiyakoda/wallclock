@@ -22,7 +22,6 @@ use tokio::time::interval;
 use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
-use crate::image::IntoBgra8;
 
 #[derive(Debug, Deserialize)]
 struct Message {
@@ -86,7 +85,10 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     block_in_place(|| {
         let (width, height) = SCREEN_DIMENSIONS;
         let image = image::load_from_memory(&data)?;
-        let image = image.resize_to_fill(width, height, FilterType::Lanczos3).into_bgra8();
+        let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
+
+        let (width, height) = (image.width(), image.height());
+        let image = RgbaImage::from_raw(width, height, image.into_rgba8().into_raw_bgra()).unwrap();
 
         Ok(WallpaperData { image })
     })

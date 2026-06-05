@@ -22,7 +22,6 @@ use tokio::time::interval;
 
 use crate::REST_CLIENT;
 use crate::Update;
-use crate::image::IntoBgra8;
 use crate::settings;
 
 #[derive(Debug, Deserialize)]
@@ -263,7 +262,8 @@ fn id_to_icon(id: i32, is_night: bool) -> anyhow::Result<RgbaImage> {
         _ => panic!("Bad icon name"),
     };
     let image = image::load_from_memory(data)?;
-    let image = image.into_bgra8();
+    let (width, height) = (image.width(), image.height());
+    let image = RgbaImage::from_raw(width, height, image.into_rgba8().into_raw_bgra()).unwrap();
 
     Ok(image)
 }

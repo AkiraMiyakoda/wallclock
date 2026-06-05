@@ -3,6 +3,7 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -86,8 +87,10 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
     let settings::Switchbot { devices, token, secret } = settings::switchbot();
 
     let task = async |device_id: &str| {
+        let path = Path::new("/v1.1/devices").join(device_id).join("status");
+
         let url = Url::parse(BASE_URL)?;
-        let url = url.join(&format!("/v1.1/devices/{device_id}/status"))?;
+        let url = url.join(path.to_str().expect("Invalid path"))?;
 
         let res = REST_CLIENT
             .get(url)
