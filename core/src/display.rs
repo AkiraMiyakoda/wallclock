@@ -35,6 +35,8 @@ use crate::wallpaper::WallpaperData;
 enum TextAnchor {
     TopLeft,
     TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 #[derive(Debug)]
@@ -73,7 +75,7 @@ impl DrawContext {
         // Draw time and date
         let datetime = Local::now();
 
-        self.fill_rect(50, 50, 880, 670, RECT_COLOR);
+        self.fill_rect(50, 50, 880, 750, RECT_COLOR);
         self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
 
         let lines = (
@@ -81,9 +83,9 @@ impl DrawContext {
             datetime.format("%M").to_compact_string(),
             datetime.format("%S").to_compact_string(),
         );
-        self.draw_text(&lines.0, 480, 70, 260, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.1, 480, 330, 260, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.2, 560, 435, 150, TEXT_COLOR, TextAnchor::TopLeft);
+        self.draw_text(&lines.0, 510, 420, 300, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.1, 510, 730, 300, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.2, 570, 700, 150, TEXT_COLOR, TextAnchor::BottomLeft);
 
         let lines = (
             datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
@@ -93,38 +95,38 @@ impl DrawContext {
         self.draw_text(&lines.1, 2400, 280, 140, TEXT_COLOR, TextAnchor::TopRight);
 
         // Draw SwitchBot measurements
-        self.fill_rect(50, 1025, 1670, 1550, RECT_COLOR);
+        self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
 
         if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot.clone() {
             let lines = (
                 format_compact!("{:.1}", indoor.temperature),
                 format_compact!("{:}", indoor.humidity),
             );
-            self.draw_text("IN", 200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text("IN", 160, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.0, 370, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 410, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 370, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 430, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
                 format_compact!("{:.1}", outdoor.temperature),
                 format_compact!("{:}", outdoor.humidity),
             );
-            self.draw_text("OUT", 700, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 930, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 1040, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 930, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 1040, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text("OUT", 640, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.0, 850, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 890, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 850, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 910, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
                 format_compact!("{:.1}", tank.temperature),
                 format_compact!("{:}", tank.humidity),
             );
-            self.draw_text("CAGE", 1200, 1080, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 1430, 1200, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("°C", 1540, 1235, 80, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 1430, 1355, 120, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text("%", 1540, 1390, 80, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text("CAGE", 1110, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.0, 1320, 1370, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 1370, 1365, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.1, 1330, 1510, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 1390, 1505, 80, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
         // Flip
@@ -160,15 +162,21 @@ impl DrawContext {
             .map(|run| run.line_w.ceil() as i32)
             .max()
             .unwrap_or(0);
+        let height: i32 = buffer.layout_runs().map(|run| run.line_height.ceil() as i32).sum();
 
         buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
             const RANGE_X: Range<i32> = 0..SCREEN_DIMENSIONS.0 as i32;
             const RANGE_Y: Range<i32> = 0..SCREEN_DIMENSIONS.0 as i32;
 
-            let (x, y) = match anchor {
-                TextAnchor::TopLeft => (x as i32 + bx, y as i32 + by),
-                TextAnchor::TopRight => (x as i32 - width + bx, y as i32 + by),
+            let x = match anchor {
+                TextAnchor::TopLeft | TextAnchor::BottomLeft => x as i32 + bx,
+                TextAnchor::TopRight | TextAnchor::BottomRight => x as i32 - width + bx,
             };
+            let y = match anchor {
+                TextAnchor::TopLeft | TextAnchor::TopRight => y as i32 + by,
+                TextAnchor::BottomLeft | TextAnchor::BottomRight => y as i32 - height + by,
+            };
+
             if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) || w != 1 || h != 1 {
                 return;
             }
