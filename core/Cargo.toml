@@ -12,7 +12,7 @@ suspicious = "deny"
 [dependencies]
 anyhow = "1.0.102"
 base64 = "0.22.1"
-chrono = "0.4.44"
+chrono = "0.4.45"
 compact_str = { version = "0.9.1", features = ["serde"] }
 cosmic-text = "0.19.0"
 format = {
