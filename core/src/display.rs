@@ -97,7 +97,7 @@ impl DrawContext {
         // Draw SwitchBot measurements
         self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
 
-        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot.clone() {
+        if let Some(SwitchBotData { indoor, outdoor, tank }) = self.switchbot {
             let lines = (
                 format_compact!("{:.1}", indoor.temperature),
                 format_compact!("{:}", indoor.humidity),
