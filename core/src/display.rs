@@ -3,11 +3,14 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::ops::Range;
+use std::os::fd::AsFd;
+use std::os::fd::BorrowedFd;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use chrono::Local;
 use compact_str::ToCompactString;
 use compact_str::format_compact;
@@ -20,6 +23,12 @@ use cosmic_text::Metrics;
 use cosmic_text::Shaping;
 use cosmic_text::SwashCache;
 use cosmic_text::fontdb::Source;
+use drm::Device as DrmDevice;
+use drm::buffer::DrmFourcc;
+use drm::control::Device as ControlDevice;
+use drm::control::connector;
+use drm::control::dumbbuffer::DumbBuffer;
+use drm::control::framebuffer;
 use format::WithCommas;
 use image::Rgba;
 use image::RgbaImage;
@@ -30,8 +39,21 @@ use tokio::task::block_in_place;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
 use crate::openweather::OpenWeatherData;
+use crate::settings;
 use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
+
+#[derive(Debug)]
+struct Card(File);
+
+impl AsFd for Card {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+impl DrmDevice for Card {}
+impl ControlDevice for Card {}
 
 #[derive(Debug, Clone, Copy)]
 enum TextAnchor {
@@ -46,15 +68,64 @@ enum TextAnchor {
 
 #[derive(Debug)]
 struct DrawContext {
+    card: Card,
+    dumb_buffer: DumbBuffer,
+    frame_buffer: framebuffer::Handle,
     back_buffer: RgbaImage,
     font_system: FontSystem,
     swash_cache: SwashCache,
 }
 
+impl Drop for DrawContext {
+    fn drop(&mut self) {
+        let _ = self.card.destroy_framebuffer(self.frame_buffer);
+        let _ = self.card.destroy_dumb_buffer(self.dumb_buffer);
+    }
+}
+
 impl DrawContext {
     fn new() -> anyhow::Result<Self> {
+        // Open DRM device
+        let settings::Drm { device } = settings::drm();
+        let card = Card(OpenOptions::new().read(true).write(true).open(device)?);
+
+        // Get DRM related resouces
+        let resources = card.resource_handles()?;
+        let connector = resources
+            .connectors()
+            .iter()
+            .flat_map(|conn| card.get_connector(*conn, true))
+            .find(|conn| conn.state() == connector::State::Connected)
+            .ok_or(anyhow!("Connector not found"))?;
+        let mode = *connector
+            .modes()
+            .iter()
+            .find(|mode| mode.size() == (SCREEN_DIMENSIONS.0 as u16, SCREEN_DIMENSIONS.1 as u16))
+            .ok_or(anyhow!("Appropriate mode not found"))?;
+        let crtc = resources
+            .crtcs()
+            .iter()
+            .flat_map(|crtc| card.get_crtc(*crtc))
+            .next()
+            .ok_or(anyhow!("CRTC not found"))?;
+
+        // Create frame buffer
+        let dumb_buffer = card.create_dumb_buffer(SCREEN_DIMENSIONS, DrmFourcc::Xrgb8888, 32)?;
+        let frame_buffer = card.add_framebuffer(&dumb_buffer, 32, 32).unwrap();
+
+        card.set_crtc(
+            crtc.handle(),
+            Some(frame_buffer),
+            (0, 0),
+            &[connector.handle()],
+            Some(mode),
+        )?;
+
         let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Bold.ttf")))];
         Ok(Self {
+            card,
+            dumb_buffer,
+            frame_buffer,
             back_buffer: RgbaImage::new(SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1),
             font_system: FontSystem::new_with_fonts(fonts),
             swash_cache: SwashCache::new(),
@@ -73,11 +144,10 @@ impl DrawContext {
         }
 
         // Draw time and date
-        let datetime = Local::now();
-
         self.fill_rect(50, 50, 880, 750, RECT_COLOR);
         self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
 
+        let datetime = Local::now();
         let lines = (
             datetime.format("%H").to_compact_string(),
             datetime.format("%M").to_compact_string(),
@@ -130,7 +200,7 @@ impl DrawContext {
         }
 
         // Draw OpenWeather measurements
-        self.fill_rect(1600, 900, 2510, 1550, RECT_COLOR);
+        self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.openweather {
             self.draw_image(1927, 930, &data.icon);
@@ -146,10 +216,10 @@ impl DrawContext {
             self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
-        // Flip
+        // Flip;
         {
-            let mut fb = OpenOptions::new().write(true).open("/dev/fb0")?;
-            fb.write_all(&self.back_buffer)?;
+            let mut map = self.card.map_dumb_buffer(&mut self.dumb_buffer)?;
+            map.copy_from_slice(&self.back_buffer);
         }
 
         Ok(())
@@ -258,6 +328,7 @@ impl DataBundle {
         }
     }
 }
+
 pub async fn worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     let mut context = DrawContext::new()?;
     let mut bundle = DataBundle::new();

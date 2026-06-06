@@ -22,7 +22,7 @@ services:
     volumes:
       - /usr/share/zoneinfo/Asia/Tokyo:/etc/localtime:ro
     devices:
-      - /dev/fb0:/dev/fb0
+      - /dev/dri/card0:/dev/dri/card0
     stop_grace_period: 0.5s
     tty: true
 

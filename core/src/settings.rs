@@ -15,6 +15,7 @@ use serde::Deserialize;
 struct Settings {
     switchbot: Switchbot,
     openweather: OpenWeather,
+    drm: Drm,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -29,6 +30,11 @@ pub struct OpenWeather {
     pub lat: f32,
     pub lon: f32,
     pub api_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Drm {
+    pub device: String,
 }
 
 impl Settings {
@@ -51,4 +57,8 @@ pub fn switchbot() -> &'static Switchbot {
 
 pub fn openweather() -> &'static OpenWeather {
     &INSTANCE.openweather
+}
+
+pub fn drm() -> &'static Drm {
+    &INSTANCE.drm
 }
