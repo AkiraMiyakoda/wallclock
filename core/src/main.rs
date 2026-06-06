@@ -31,21 +31,21 @@ enum Update {
 
 struct Dimensions(u16, u16);
 
-impl Into<(u32, u32)> for Dimensions {
-    fn into(self) -> (u32, u32) {
-        (self.0.into(), self.1.into())
+impl From<Dimensions> for (u32, u32) {
+    fn from(val: Dimensions) -> Self {
+        (val.0.into(), val.1.into())
     }
 }
 
-impl Into<(i32, i32)> for Dimensions {
-    fn into(self) -> (i32, i32) {
-        (self.0.into(), self.1.into())
+impl From<Dimensions> for (i32, i32) {
+    fn from(val: Dimensions) -> Self {
+        (val.0.into(), val.1.into())
     }
 }
 
-impl Into<(u16, u16)> for Dimensions {
-    fn into(self) -> (u16, u16) {
-        (self.0, self.1)
+impl From<Dimensions> for (u16, u16) {
+    fn from(val: Dimensions) -> Self {
+        (val.0, val.1)
     }
 }
 
