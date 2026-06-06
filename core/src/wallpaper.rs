@@ -83,7 +83,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
 
     // Decode and resize the picture
     block_in_place(|| {
-        let (width, height) = SCREEN_DIMENSIONS;
+        let (width, height) = SCREEN_DIMENSIONS.into();
         let image = image::load_from_memory(&data)?;
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
 

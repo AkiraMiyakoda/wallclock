@@ -5,7 +5,6 @@
 
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::ops::Range;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::sync::Arc;
@@ -100,7 +99,7 @@ impl DrawContext {
         let mode = *connector
             .modes()
             .iter()
-            .find(|mode| mode.size() == (SCREEN_DIMENSIONS.0 as u16, SCREEN_DIMENSIONS.1 as u16))
+            .find(|mode| mode.size() == SCREEN_DIMENSIONS.into())
             .ok_or(anyhow!("Appropriate mode not found"))?;
         let crtc = resources
             .crtcs()
@@ -110,7 +109,7 @@ impl DrawContext {
             .ok_or(anyhow!("CRTC not found"))?;
 
         // Create frame buffer
-        let dumb_buffer = card.create_dumb_buffer(SCREEN_DIMENSIONS, DrmFourcc::Xrgb8888, 32)?;
+        let dumb_buffer = card.create_dumb_buffer(SCREEN_DIMENSIONS.into(), DrmFourcc::Xrgb8888, 32)?;
         let frame_buffer = card.add_framebuffer(&dumb_buffer, 32, 32).unwrap();
 
         card.set_crtc(
@@ -122,11 +121,12 @@ impl DrawContext {
         )?;
 
         let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Bold.ttf")))];
+        let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
         Ok(Self {
             card,
             dumb_buffer,
             frame_buffer,
-            back_buffer: RgbaImage::new(SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1),
+            back_buffer: RgbaImage::new(screen_width, screen_height),
             font_system: FontSystem::new_with_fonts(fonts),
             swash_cache: SwashCache::new(),
         })
@@ -203,20 +203,20 @@ impl DrawContext {
         self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.openweather {
-            self.draw_image(1927, 930, &data.icon);
+            self.draw_image(1905, 930, &data.icon);
 
             let lines = (
                 data.description.to_ascii_uppercase(),
                 format_compact!("{}", WithCommas::from(data.pressure)),
             );
 
-            self.draw_text(&lines.0, 2055, 1330, 80, TEXT_COLOR, TextAnchor::BottomCenter);
+            self.draw_text(&lines.0, 2055, 1340, 80, TEXT_COLOR, TextAnchor::BottomCenter);
 
             self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
-        // Flip;
+        // Flip
         {
             let mut map = self.card.map_dumb_buffer(&mut self.dumb_buffer)?;
             map.copy_from_slice(&self.back_buffer);
@@ -238,15 +238,14 @@ impl DrawContext {
     }
 
     fn draw_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
-        const RANGE_X: Range<u32> = 0..SCREEN_DIMENSIONS.0;
-        const RANGE_Y: Range<u32> = 0..SCREEN_DIMENSIONS.0;
+        let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
 
         for bx in 0..image.width() {
             for by in 0..image.height() {
                 let x = x + bx;
                 let y = y + by;
 
-                if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) {
+                if !(0..screen_width).contains(&x) || !(0..screen_height).contains(&y) {
                     continue;
                 }
 
@@ -271,8 +270,7 @@ impl DrawContext {
         let height: i32 = buffer.layout_runs().map(|run| run.line_height.ceil() as i32).sum();
 
         buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
-            const RANGE_X: Range<i32> = 0..SCREEN_DIMENSIONS.0 as i32;
-            const RANGE_Y: Range<i32> = 0..SCREEN_DIMENSIONS.0 as i32;
+            let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
 
             let x = match anchor {
                 TextAnchor::TopLeft | TextAnchor::BottomLeft => x as i32 + bx,
@@ -284,7 +282,7 @@ impl DrawContext {
                 TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y as i32 - height + by,
             };
 
-            if !RANGE_X.contains(&x) || !RANGE_Y.contains(&y) || w != 1 || h != 1 {
+            if !(0..screen_width).contains(&x) || !(0..screen_height).contains(&y) || w != 1 || h != 1 {
                 return;
             }
 

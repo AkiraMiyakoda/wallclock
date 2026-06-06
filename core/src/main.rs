@@ -29,8 +29,28 @@ enum Update {
     Wallpaper(WallpaperData),
 }
 
+struct Dimensions(u16, u16);
+
+impl Into<(u32, u32)> for Dimensions {
+    fn into(self) -> (u32, u32) {
+        (self.0.into(), self.1.into())
+    }
+}
+
+impl Into<(i32, i32)> for Dimensions {
+    fn into(self) -> (i32, i32) {
+        (self.0.into(), self.1.into())
+    }
+}
+
+impl Into<(u16, u16)> for Dimensions {
+    fn into(self) -> (u16, u16) {
+        (self.0, self.1)
+    }
+}
+
+const SCREEN_DIMENSIONS: Dimensions = Dimensions(2560, 1600);
 const CHANNEL_SIZE: usize = 16;
-const SCREEN_DIMENSIONS: (u32, u32) = (2560, 1600);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
