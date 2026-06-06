@@ -17,10 +17,12 @@ use cosmic_text::Align;
 use cosmic_text::Attrs;
 use cosmic_text::Buffer;
 use cosmic_text::Color;
+use cosmic_text::Family;
 use cosmic_text::FontSystem;
 use cosmic_text::Metrics;
 use cosmic_text::Shaping;
 use cosmic_text::SwashCache;
+use cosmic_text::Weight;
 use cosmic_text::fontdb::Source;
 use drm::Device as DrmDevice;
 use drm::buffer::DrmFourcc;
@@ -258,7 +260,8 @@ impl DrawContext {
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut buffer = buffer.borrow_with(&mut self.font_system);
 
-        buffer.set_text(text, &Attrs::new(), Shaping::Advanced, Some(Align::Left));
+        let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
+        buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
 
         let width = buffer
             .layout_runs()
