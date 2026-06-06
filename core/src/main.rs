@@ -14,6 +14,7 @@ use crate::openweather::OpenWeatherData;
 use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
 
+mod alphablend;
 mod display;
 mod openweather;
 mod settings;

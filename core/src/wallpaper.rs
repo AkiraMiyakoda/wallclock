@@ -86,10 +86,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
         let (width, height) = SCREEN_DIMENSIONS.into();
         let image = image::load_from_memory(&data)?;
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
-
-        let (width, height) = (image.width(), image.height());
-        let raw = image.into_rgba8().into_raw_bgra();
-        let image = RgbaImage::from_raw(width, height, raw).unwrap();
+        let image = RgbaImage::from_raw(image.width(), image.height(), image.into_rgba8().into_raw_bgra()).unwrap();
 
         Ok(WallpaperData { image })
     })

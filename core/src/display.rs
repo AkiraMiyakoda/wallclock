@@ -40,6 +40,7 @@ use tokio::task::block_in_place;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
+use crate::alphablend::alphablend_x4;
 use crate::openweather::OpenWeatherData;
 use crate::settings;
 use crate::switchbot::SwitchBotData;
@@ -156,9 +157,9 @@ impl DrawContext {
             datetime.format("%M").to_compact_string(),
             datetime.format("%S").to_compact_string(),
         );
-        self.draw_text(&lines.0, 510, 420, 300, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.1, 510, 730, 300, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.2, 570, 700, 150, TEXT_COLOR, TextAnchor::BottomLeft);
+        self.draw_text(&lines.0, 525, 420, 300, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.1, 525, 730, 300, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.2, 575, 700, 150, TEXT_COLOR, TextAnchor::BottomLeft);
 
         let lines = (
             datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
@@ -206,7 +207,7 @@ impl DrawContext {
         self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.openweather {
-            self.draw_image(1905, 930, &data.icon);
+            self.draw_image(1888, 920, &data.icon);
 
             let lines = (
                 data.description.to_ascii_uppercase(),
@@ -229,28 +230,58 @@ impl DrawContext {
     }
 
     fn fill_rect(&mut self, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
+        let r = r.min(self.back_buffer.width());
+        let t = t.min(self.back_buffer.height());
+
         if l >= r || t >= b {
             return;
         }
 
+        #[repr(align(16))]
+        struct Aligned([u8; 16]);
+
+        #[rustfmt::skip]
+        let src = Aligned([
+            color[0], color[1], color[2], color[3],
+            color[0], color[1], color[2], color[3],
+            color[0], color[1], color[2], color[3],
+            color[0], color[1], color[2], color[3],
+        ]);
+        let stride = self.back_buffer.width() * 4;
+
         for y in t..b {
-            for x in l..r {
-                if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
-                    pixel.blend(&color);
-                }
+            for x in l.div_ceil(4)..(r / 4) {
+                let dst_offset = (y * stride + x * 4 * 4) as usize;
+                alphablend_x4(&src.0, &mut self.back_buffer.as_mut()[dst_offset..dst_offset + 4 * 4]);
+            }
+        }
+
+        for y in t..b {
+            for x in l..(l.div_ceil(4) * 4) {
+                self.back_buffer.get_pixel_mut(x, y).blend(&color);
+            }
+            for x in (r / 4 * 4)..r {
+                self.back_buffer.get_pixel_mut(x, y).blend(&color);
             }
         }
     }
 
-    fn draw_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
-        for bx in 0..image.width() {
-            for by in 0..image.height() {
-                let x = x + bx;
-                let y = y + by;
+    fn draw_image(&mut self, x: u32, y: u32, src: &RgbaImage) {
+        assert!(x.is_multiple_of(4));
+        assert!(src.width().is_multiple_of(4));
 
-                if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
-                    pixel.blend(image.get_pixel(bx, by));
-                }
+        let src_stride = src.width() * 4;
+        let dst_stride = self.back_buffer.width() * 4;
+
+        for src_y in 0..src.height() {
+            for src_x in 0..src.width() / 4 {
+                let src_offset = (src_y * src_stride + src_x * 4 * 4) as usize;
+                let dst_offset = ((y + src_y) * dst_stride + (x / 4 + src_x) * 4 * 4) as usize;
+
+                alphablend_x4(
+                    &src.as_raw()[src_offset..src_offset + 4 * 4],
+                    &mut self.back_buffer.as_mut()[dst_offset..dst_offset + 4 * 4],
+                );
             }
         }
     }
