@@ -29,6 +29,7 @@ use drm::control::connector;
 use drm::control::dumbbuffer::DumbBuffer;
 use drm::control::framebuffer;
 use format::WithCommas;
+use image::Pixel;
 use image::Rgba;
 use image::RgbaImage;
 use log::error;
@@ -226,31 +227,28 @@ impl DrawContext {
     }
 
     fn fill_rect(&mut self, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
-        let (l, r) = (u32::min(l, r), u32::max(l, r));
-        let (t, b) = (u32::min(t, b), u32::max(t, b));
+        if l >= r || t >= b {
+            return;
+        }
 
         for y in t..b {
             for x in l..r {
-                let pixel = self.back_buffer.get_pixel_mut(x, y);
-                *pixel = alphablend(*pixel, color);
+                if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
+                    pixel.blend(&color);
+                }
             }
         }
     }
 
     fn draw_image(&mut self, x: u32, y: u32, image: &RgbaImage) {
-        let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
-
         for bx in 0..image.width() {
             for by in 0..image.height() {
                 let x = x + bx;
                 let y = y + by;
 
-                if !(0..screen_width).contains(&x) || !(0..screen_height).contains(&y) {
-                    continue;
+                if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
+                    pixel.blend(image.get_pixel(bx, by));
                 }
-
-                let pixel = self.back_buffer.get_pixel_mut(x, y);
-                *pixel = alphablend(*pixel, *image.get_pixel(bx, by));
             }
         }
     }
@@ -270,7 +268,9 @@ impl DrawContext {
         let height: i32 = buffer.layout_runs().map(|run| run.line_height.ceil() as i32).sum();
 
         buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
-            let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
+            if w != 1 || h != 1 {
+                return;
+            }
 
             let x = match anchor {
                 TextAnchor::TopLeft | TextAnchor::BottomLeft => x as i32 + bx,
@@ -282,32 +282,11 @@ impl DrawContext {
                 TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y as i32 - height + by,
             };
 
-            if !(0..screen_width).contains(&x) || !(0..screen_height).contains(&y) || w != 1 || h != 1 {
-                return;
+            if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x as u32, y as u32) {
+                pixel.blend(&Rgba(color.as_rgba()));
             }
-
-            let pixel = self.back_buffer.get_pixel_mut(x as u32, y as u32);
-            *pixel = alphablend(*pixel, Rgba(color.as_rgba()));
         });
     }
-}
-
-#[inline]
-fn alphablend_channel(back: u8, front: u8, alpha: u8) -> u8 {
-    let back = back as u32;
-    let front = front as u32;
-    let alpha = alpha as u32;
-    ((back * (255 - alpha) / 255) + (front * alpha / 255)).clamp(0, 255) as u8
-}
-
-#[inline]
-fn alphablend(back: Rgba<u8>, front: Rgba<u8>) -> Rgba<u8> {
-    Rgba([
-        alphablend_channel(back[0], front[0], front[3]),
-        alphablend_channel(back[1], front[1], front[3]),
-        alphablend_channel(back[2], front[2], front[3]),
-        255,
-    ])
 }
 
 #[derive(Debug)]
