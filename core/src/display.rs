@@ -150,7 +150,7 @@ impl DrawContext {
         const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
         // Draw wallpaper
-        if let Some(wallpaper) = &bundle.wallpapar {
+        if let Some(wallpaper) = &bundle.wallpaper {
             self.back_buffer.copy_from_slice(&wallpaper.image);
         } else {
             self.back_buffer.fill(0);
@@ -332,7 +332,7 @@ impl DrawContext {
 struct DataBundle {
     switchbot: Option<SwitchBotData>,
     openweather: Option<OpenWeatherData>,
-    wallpapar: Option<WallpaperData>,
+    wallpaper: Option<WallpaperData>,
 }
 
 impl DataBundle {
@@ -340,7 +340,7 @@ impl DataBundle {
         Self {
             switchbot: None,
             openweather: None,
-            wallpapar: None,
+            wallpaper: None,
         }
     }
 }
@@ -387,7 +387,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
         match update {
             Update::SwitchBot(data) => bundle.switchbot = Some(data),
             Update::OpenWeather(data) => bundle.openweather = Some(data),
-            Update::Wallpaper(data) => bundle.wallpapar = Some(data),
+            Update::Wallpaper(data) => bundle.wallpaper = Some(data),
         }
     }
 
