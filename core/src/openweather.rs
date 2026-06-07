@@ -129,7 +129,7 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
 
     let settings::OpenWeather { lat, lon, api_key } = settings::openweather();
 
-    let params: [(&str, &str); 3] = [
+    let params: [(&str, &str); _] = [
         ("lat", &lat.to_compact_string()),
         ("lon", &lon.to_compact_string()),
         ("appid", api_key),
