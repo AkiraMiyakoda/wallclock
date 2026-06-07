@@ -105,7 +105,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        let tick = Utc::now().timestamp() / TimeDelta::minutes(10).num_seconds();
+        let tick = (Utc::now().timestamp() - 30) / TimeDelta::minutes(10).num_seconds();
         if tick == last_tick {
             continue;
         }
@@ -309,7 +309,7 @@ fn id_to_icon(id: i32, is_day: bool) -> anyhow::Result<AlignedRgbaImage> {
         Icons::Tornado => include_bytes!("../icons/wi-tornado.png"),
     };
     let image = image::load_from_memory(data)?;
-    let image = AlignedRgbaImage::from_slice(image.width(), image.height(), &image.into_rgba8().into_raw_bgra())?;
+    let image: AlignedRgbaImage = image.into();
 
     Ok(image)
 }

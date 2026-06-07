@@ -10,7 +10,7 @@ use std::ops::DerefMut;
 use aligned_vec::AVec;
 use aligned_vec::CACHELINE_ALIGN;
 use aligned_vec::avec;
-use anyhow::bail;
+use image::DynamicImage;
 use image::Pixel;
 use image::Rgba;
 
@@ -28,18 +28,6 @@ impl AlignedRgbaImage {
             width,
             height,
         }
-    }
-
-    pub fn from_slice(width: u32, height: u32, raw: &[u8]) -> anyhow::Result<Self> {
-        if raw.len() < (width * height * 4) as usize {
-            bail!("Not enough raw data for given size");
-        }
-
-        Ok(Self {
-            data: AVec::from_slice(CACHELINE_ALIGN, raw),
-            width,
-            height,
-        })
     }
 
     pub fn width(&self) -> u32 {
@@ -62,6 +50,39 @@ impl AlignedRgbaImage {
 
         let i = ((y * self.width + x) * 4) as usize;
         Some(<Rgba<u8> as Pixel>::from_slice_mut(&mut self.data[i..(i + 4)]))
+    }
+}
+
+impl From<DynamicImage> for AlignedRgbaImage {
+    fn from(value: DynamicImage) -> Self {
+        // Dynamic image to RGBA Bitmap
+        let image = value.into_rgba8();
+        let mut data = AVec::from_slice(CACHELINE_ALIGN, &image);
+
+        // Convert from RGBA to BGRA
+        unsafe {
+            #[rustfmt::skip]
+            let shuffle_mask = _mm256_set_epi8(
+                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
+                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
+            );
+
+            let mut ptr = data.as_mut_ptr();
+
+            for _ in 0..data.len() / 32 {
+                let row = _mm256_load_si256(ptr as *const __m256i);
+                let row = _mm256_shuffle_epi8(row, shuffle_mask);
+                _mm256_store_si256(ptr as *mut __m256i, row);
+
+                ptr = ptr.add(32);
+            }
+        }
+
+        Self {
+            data,
+            width: image.width(),
+            height: image.height(),
+        }
     }
 }
 

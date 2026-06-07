@@ -47,7 +47,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        let tick = Utc::now().timestamp() / TimeDelta::hours(3).num_seconds();
+        let tick = (Utc::now().timestamp() - 60) / TimeDelta::hours(3).num_seconds();
         if tick == last_tick {
             continue;
         }
@@ -86,7 +86,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
         let (width, height) = SCREEN_DIMENSIONS.into();
         let image = image::load_from_memory(&data)?;
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
-        let image = AlignedRgbaImage::from_slice(image.width(), image.height(), &image.into_rgba8().into_raw_bgra())?;
+        let image: AlignedRgbaImage = image.into();
 
         Ok(WallpaperData { image })
     })
