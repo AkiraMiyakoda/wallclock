@@ -19,12 +19,10 @@ mod display;
 mod openweather;
 mod settings;
 mod switchbot;
-mod tick;
 mod wallpaper;
 
 #[derive(Debug)]
 enum Update {
-    Tick,
     SwitchBot(SwitchBotData),
     OpenWeather(OpenWeatherData),
     Wallpaper(WallpaperData),
@@ -51,7 +49,7 @@ impl From<Dimensions> for (u16, u16) {
 }
 
 const SCREEN_DIMENSIONS: Dimensions = Dimensions(2560, 1600);
-const CHANNEL_SIZE: usize = 16;
+const CHANNEL_SIZE: usize = 8;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -65,7 +63,6 @@ async fn main() -> anyhow::Result<()> {
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
     select! {
-        result = tick::worker(&sender) => result,
         result = switchbot::worker(&sender) => result,
         result = openweather::worker(&sender) => result,
         result = wallpaper::worker(&sender) => result,

@@ -8,11 +8,14 @@ use std::fs::OpenOptions;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use aligned_vec::CACHELINE_ALIGN;
 use aligned_vec::avec;
 use anyhow::anyhow;
 use chrono::Local;
+use chrono::Utc;
 use compact_str::ToCompactString;
 use compact_str::format_compact;
 use cosmic_text::Align;
@@ -36,8 +39,12 @@ use format::WithCommas;
 use image::Pixel;
 use image::Rgba;
 use log::error;
+use tokio::select;
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::task::block_in_place;
+use tokio::time::MissedTickBehavior;
+use tokio::time::interval;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
@@ -338,20 +345,49 @@ impl DataBundle {
     }
 }
 
-pub async fn worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
-    let mut context = DrawContext::new()?;
-    let mut bundle = DataBundle::new();
+static BUNDLE: LazyLock<RwLock<DataBundle>> = LazyLock::new(|| RwLock::new(DataBundle::new()));
 
-    while let Some(update) = receiver.recv().await {
-        match update {
-            Update::Tick => {}
-            Update::SwitchBot(data) => bundle.switchbot = Some(data),
-            Update::OpenWeather(data) => bundle.openweather = Some(data),
-            Update::Wallpaper(data) => bundle.wallpapar = Some(data),
+pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
+    select! {
+        result = draw_worker() => result,
+        result = update_worker(receiver) => result,
+    }
+}
+
+async fn draw_worker() -> anyhow::Result<()> {
+    let mut interval = interval(Duration::from_millis(25));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let mut last_tick: i64 = 0;
+
+    let mut context = DrawContext::new()?;
+
+    loop {
+        interval.tick().await;
+
+        let tick = Utc::now().timestamp();
+        if tick == last_tick {
+            continue;
         }
+
+        last_tick = tick;
+
+        let bundle = BUNDLE.read().await;
 
         if let Err(e) = block_in_place(|| context.draw(&bundle)) {
             error!("Failed to draw: {e:?}")
+        }
+    }
+}
+
+async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
+    while let Some(update) = receiver.recv().await {
+        let mut bundle = BUNDLE.write().await;
+
+        match update {
+            Update::SwitchBot(data) => bundle.switchbot = Some(data),
+            Update::OpenWeather(data) => bundle.openweather = Some(data),
+            Update::Wallpaper(data) => bundle.wallpapar = Some(data),
         }
     }
 
