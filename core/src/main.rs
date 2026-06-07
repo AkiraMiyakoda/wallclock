@@ -58,7 +58,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 static REST_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
-#[tokio::main(worker_threads = 1)]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
     logger::init();
 

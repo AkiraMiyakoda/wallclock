@@ -8,7 +8,6 @@ use std::time::Duration;
 use anyhow::bail;
 use chrono::TimeDelta;
 use chrono::Utc;
-use image::RgbaImage;
 use image::imageops::FilterType;
 use log::error;
 use log::info;
@@ -22,6 +21,7 @@ use tokio::time::interval;
 use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
+use crate::alphablend::AlignedRgbaImage;
 
 #[derive(Debug, Deserialize)]
 struct Message {
@@ -35,7 +35,7 @@ struct ImageRow {
 
 #[derive(Debug)]
 pub struct WallpaperData {
-    pub image: RgbaImage,
+    pub image: AlignedRgbaImage,
 }
 
 pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
@@ -86,7 +86,7 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
         let (width, height) = SCREEN_DIMENSIONS.into();
         let image = image::load_from_memory(&data)?;
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
-        let image = RgbaImage::from_raw(image.width(), image.height(), image.into_rgba8().into_raw_bgra()).unwrap();
+        let image = AlignedRgbaImage::from_slice(image.width(), image.height(), &image.into_rgba8().into_raw_bgra())?;
 
         Ok(WallpaperData { image })
     })

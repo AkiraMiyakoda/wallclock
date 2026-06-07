@@ -10,6 +10,7 @@ style = "warn"
 suspicious = "deny"
 
 [dependencies]
+aligned-vec = "0.6.4"
 anyhow = "1.0.102"
 base64 = "0.22.1"
 chrono = "0.4.45"

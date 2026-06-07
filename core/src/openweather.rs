@@ -10,7 +10,6 @@ use chrono::TimeDelta;
 use chrono::Utc;
 use compact_str::CompactString;
 use compact_str::ToCompactString;
-use image::RgbaImage;
 use log::error;
 use log::info;
 use reqwest::Url;
@@ -22,6 +21,7 @@ use tokio::time::interval;
 
 use crate::REST_CLIENT;
 use crate::Update;
+use crate::alphablend::AlignedRgbaImage;
 use crate::settings;
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +51,7 @@ struct Sys {
 
 #[derive(Debug)]
 pub struct OpenWeatherData {
-    pub icon: RgbaImage,
+    pub icon: AlignedRgbaImage,
     pub description: CompactString,
     pub pressure: i32,
 }
@@ -65,7 +65,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        let tick = Utc::now().timestamp() / TimeDelta::minutes(30).num_seconds();
+        let tick = Utc::now().timestamp() / TimeDelta::minutes(10).num_seconds();
         if tick == last_tick {
             continue;
         }
@@ -110,7 +110,7 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
     })
 }
 
-fn id_to_icon(id: i32, is_day: bool) -> anyhow::Result<RgbaImage> {
+fn id_to_icon(id: i32, is_day: bool) -> anyhow::Result<AlignedRgbaImage> {
     let name = match (id, is_day) {
         (200, true) => "day-thunderstorm",
         (201, true) => "day-thunderstorm",
@@ -270,7 +270,7 @@ fn id_to_icon(id: i32, is_day: bool) -> anyhow::Result<RgbaImage> {
         _ => panic!("Bad icon name"),
     };
     let image = image::load_from_memory(data)?;
-    let image = RgbaImage::from_raw(image.width(), image.height(), image.into_rgba8().into_raw_bgra()).unwrap();
+    let image = AlignedRgbaImage::from_slice(image.width(), image.height(), &image.into_rgba8().into_raw_bgra())?;
 
     Ok(image)
 }

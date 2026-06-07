@@ -9,6 +9,8 @@ use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::sync::Arc;
 
+use aligned_vec::CACHELINE_ALIGN;
+use aligned_vec::avec;
 use anyhow::anyhow;
 use chrono::Local;
 use compact_str::ToCompactString;
@@ -33,14 +35,14 @@ use drm::control::framebuffer;
 use format::WithCommas;
 use image::Pixel;
 use image::Rgba;
-use image::RgbaImage;
 use log::error;
 use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
-use crate::alphablend::alphablend_x4;
+use crate::alphablend::AlignedRgbaImage;
+use crate::alphablend::alphablend_x8;
 use crate::openweather::OpenWeatherData;
 use crate::settings;
 use crate::switchbot::SwitchBotData;
@@ -74,7 +76,7 @@ struct DrawContext {
     card: Card,
     dumb_buffer: DumbBuffer,
     frame_buffer: framebuffer::Handle,
-    back_buffer: RgbaImage,
+    back_buffer: AlignedRgbaImage,
     font_system: FontSystem,
     swash_cache: SwashCache,
 }
@@ -130,19 +132,19 @@ impl DrawContext {
             card,
             dumb_buffer,
             frame_buffer,
-            back_buffer: RgbaImage::new(screen_width, screen_height),
+            back_buffer: AlignedRgbaImage::new(screen_width, screen_height),
             font_system: FontSystem::new_with_fonts(fonts),
             swash_cache: SwashCache::new(),
         })
     }
 
     fn draw(&mut self, bundle: &DataBundle) -> anyhow::Result<()> {
-        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 200]);
+        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
         const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
         // Draw wallpaper
         if let Some(wallpaper) = &bundle.wallpapar {
-            self.back_buffer.copy_from_slice(wallpaper.image.as_raw());
+            self.back_buffer.copy_from_slice(&wallpaper.image);
         } else {
             self.back_buffer.fill(0);
         }
@@ -214,7 +216,7 @@ impl DrawContext {
                 format_compact!("{}", WithCommas::from(data.pressure)),
             );
 
-            self.draw_text(&lines.0, 2055, 1340, 80, TEXT_COLOR, TextAnchor::BottomCenter);
+            self.draw_text(&lines.0, 2055, 1340, 70, TEXT_COLOR, TextAnchor::BottomCenter);
 
             self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
@@ -237,50 +239,41 @@ impl DrawContext {
             return;
         }
 
-        #[repr(align(16))]
-        struct Aligned([u8; 16]);
-
-        #[rustfmt::skip]
-        let src = Aligned([
-            color[0], color[1], color[2], color[3],
-            color[0], color[1], color[2], color[3],
-            color[0], color[1], color[2], color[3],
-            color[0], color[1], color[2], color[3],
-        ]);
-        let stride = self.back_buffer.width() * 4;
+        let src = avec![[CACHELINE_ALIGN]| color; 8];
+        let dst_stride = self.back_buffer.width() * 4;
 
         for y in t..b {
-            for x in l.div_ceil(4)..(r / 4) {
-                let dst_offset = (y * stride + x * 4 * 4) as usize;
-                alphablend_x4(&src.0, &mut self.back_buffer.as_mut()[dst_offset..dst_offset + 4 * 4]);
+            for x in l.div_ceil(8)..(r / 8) {
+                let dst_offset = (y * dst_stride + x * 32) as usize;
+                alphablend_x8(&src, &mut self.back_buffer[dst_offset..dst_offset + 32]);
             }
         }
 
         for y in t..b {
-            for x in l..(l.div_ceil(4) * 4) {
+            for x in l..(l.div_ceil(8) * 8) {
                 self.back_buffer.get_pixel_mut(x, y).blend(&color);
             }
-            for x in (r / 4 * 4)..r {
+            for x in (r / 8 * 8)..r {
                 self.back_buffer.get_pixel_mut(x, y).blend(&color);
             }
         }
     }
 
-    fn draw_image(&mut self, x: u32, y: u32, src: &RgbaImage) {
-        assert!(x.is_multiple_of(4));
-        assert!(src.width().is_multiple_of(4));
+    fn draw_image(&mut self, x: u32, y: u32, src: &AlignedRgbaImage) {
+        assert!(x.is_multiple_of(8));
+        assert!(src.width().is_multiple_of(8));
 
         let src_stride = src.width() * 4;
         let dst_stride = self.back_buffer.width() * 4;
 
         for src_y in 0..src.height() {
-            for src_x in 0..src.width() / 4 {
-                let src_offset = (src_y * src_stride + src_x * 4 * 4) as usize;
-                let dst_offset = ((y + src_y) * dst_stride + (x / 4 + src_x) * 4 * 4) as usize;
+            for src_x in 0..src.width() / 8 {
+                let src_offset = (src_y * src_stride + src_x * 32) as usize;
+                let dst_offset = ((y + src_y) * dst_stride + (x / 8 + src_x) * 32) as usize;
 
-                alphablend_x4(
-                    &src.as_raw()[src_offset..src_offset + 4 * 4],
-                    &mut self.back_buffer.as_mut()[dst_offset..dst_offset + 4 * 4],
+                alphablend_x8(
+                    &src[src_offset..src_offset + 32],
+                    &mut self.back_buffer[dst_offset..dst_offset + 32],
                 );
             }
         }

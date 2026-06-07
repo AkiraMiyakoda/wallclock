@@ -3025,6 +3025,7 @@ dependencies = [
 name = "wallclock-core"
 version = "0.1.0"
 dependencies = [
+ "aligned-vec",
  "anyhow",
  "base64",
  "chrono",
