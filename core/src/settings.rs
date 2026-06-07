@@ -22,7 +22,13 @@ struct Settings {
 pub struct Switchbot {
     pub token: String,
     pub secret: String,
-    pub devices: (CompactString, CompactString, CompactString),
+    pub devices: (SwitchBotDevice, SwitchBotDevice, SwitchBotDevice),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SwitchBotDevice {
+    pub id: CompactString,
+    pub name: CompactString,
 }
 
 #[derive(Debug, Clone, Deserialize)]

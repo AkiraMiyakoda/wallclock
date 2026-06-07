@@ -108,7 +108,7 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
 
         anyhow::Ok(body)
     };
-    let results = try_join!(task(&devices.0), task(&devices.1), task(&devices.2))?;
+    let results = try_join!(task(&devices.0.id), task(&devices.1.id), task(&devices.2.id))?;
     let (Body::WoIOSensor(indoor), Body::WoIOSensor(outdoor), Body::WoIOSensor(tank)) = results;
 
     Ok(SwitchBotData { indoor, outdoor, tank })

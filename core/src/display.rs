@@ -174,34 +174,39 @@ impl DrawContext {
         self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
 
         if let Some(data) = &bundle.switchbot {
+            let settings::Switchbot { devices, .. } = settings::switchbot();
+
             let lines = (
+                devices.0.name.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.indoor.temperature),
                 format_compact!("{:}", data.indoor.humidity),
             );
-            self.draw_text("IN", 160, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 370, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.0, 160, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 370, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("°C", 410, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 370, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.2, 370, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("%", 430, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
+                devices.1.name.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.outdoor.temperature),
                 format_compact!("{:}", data.outdoor.humidity),
             );
-            self.draw_text("OUT", 640, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 850, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.0, 640, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 850, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("°C", 890, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 850, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.2, 850, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("%", 910, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
+                devices.2.name.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.tank.temperature),
                 format_compact!("{:}", data.tank.humidity),
             );
-            self.draw_text("CAGE", 1110, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.0, 1320, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.0, 1110, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 1320, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("°C", 1370, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.1, 1330, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.2, 1330, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("%", 1390, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
