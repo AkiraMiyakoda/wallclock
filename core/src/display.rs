@@ -227,9 +227,7 @@ impl DrawContext {
                 data.description.to_ascii_uppercase(),
                 format_compact!("{}", WithCommas::from(data.pressure)),
             );
-
             self.draw_text(&lines.0, 2055, 1340, 70, TEXT_COLOR, TextAnchor::BottomCenter);
-
             self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
             self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
         }

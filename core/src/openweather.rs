@@ -320,9 +320,8 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
         let is_day = (data.sunrise..data.sunset).contains(&data.dt);
         let icon = Icons::from_openweather_id(weather.id, is_day)?;
         let image = image::load_from_memory(icon.as_bytes())?;
-        let image: AlignedRgbaImage = image.into();
 
-        anyhow::Ok(image)
+        anyhow::Ok(image.into())
     })?;
     let rainfall = data.rain.or(data.snow).map(|rain| rain.hourly).unwrap_or(0.0);
 
