@@ -66,7 +66,6 @@ impl From<DynamicImage> for AlignedRgbaImage {
                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
             );
-
             let mut ptr = data.as_mut_ptr();
 
             for _ in 0..data.len() / 32 {
@@ -123,10 +122,14 @@ pub fn alphablend_x8<T, U>(src: &[T], dst: &mut [U]) {
             15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
             15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
         );
+        let alpha_mask = _mm256_set1_epi32(0xff000000_u32 as i32);
 
         // Load 8 pixels each from src and dst
         let src_8x8 = _mm256_load_si256(src.as_ptr() as *const __m256i);
-        if _mm256_testz_si256(src_8x8, src_8x8) != 0 {
+
+        // Do nothing if all alpha values are zero
+        let alpha = _mm256_and_si256(src_8x8, alpha_mask);
+        if _mm256_testz_si256(alpha, alpha) != 0 {
             return;
         }
 
