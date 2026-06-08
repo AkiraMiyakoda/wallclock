@@ -3,17 +3,17 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
-use anyhow::bail;
 use chrono::TimeDelta;
 use chrono::Utc;
-use compact_str::format_compact;
 use image::imageops::FilterType;
 use log::error;
 use log::info;
 use reqwest::Url;
 use serde::Deserialize;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 use tokio::time::MissedTickBehavior;
@@ -23,16 +23,15 @@ use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
 use crate::alphablend::AlignedRgbaImage;
-use crate::settings;
 
 #[derive(Debug, Deserialize)]
 struct Message {
-    data: Vec<DataRow>,
+    images: Vec<Image>,
 }
 
 #[derive(Debug, Deserialize)]
-struct DataRow {
-    path: String,
+struct Image {
+    urlbase: String,
 }
 
 #[derive(Debug)]
@@ -68,42 +67,47 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     }
 }
 
+static URL_QUEUE: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(vec![]));
+
 async fn inquire() -> anyhow::Result<WallpaperData> {
-    const BASE_URL: &str = "https://wallhaven.cc/api/v1/search";
+    const API_URL: &str = "https://bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=ja-JP";
+    const BASE_URL: &str = "https://bing.com/";
 
-    let settings::Wallhaven {
-        query,
-        categories,
-        purity,
-    } = settings::wallhaven();
+    let url = {
+        let mut queue = URL_QUEUE.lock().await;
 
-    // Get random picture info from Wallhaven
-    let atleast = format_compact!("{}x{}", SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1);
-    let params: [(&str, &str); _] = [
-        ("q", query),
-        ("categories", categories),
-        ("purity", purity),
-        ("atleast", &atleast),
-        ("sorting", "random"),
-    ];
-    let url = Url::parse_with_params(BASE_URL, params)?;
-    let res = REST_CLIENT.get(url).send().await?;
-    let msg: Message = res.json().await?;
-    let Some(row) = msg.data.into_iter().next() else {
-        bail!("Metadata is empty");
+        if queue.is_empty() {
+            // Get list of pictures from Bing
+            let res = REST_CLIENT.get(API_URL).send().await?;
+            let msg: Message = res.json().await?;
+
+            let base_url = Url::parse(BASE_URL)?;
+            *queue = msg
+                .images
+                .into_iter()
+                .flat_map(|image| {
+                    base_url
+                        .join(&format!("{}_UHD.jpg", image.urlbase))
+                        .map(|url| url.to_string())
+                })
+                .collect();
+        }
+
+        queue.pop().expect("Queue is empty")
     };
 
     // Get the picture
-    let res = REST_CLIENT.get(row.path).send().await?;
+    let res = REST_CLIENT.get(&url).send().await?;
     let data = res.bytes().await?;
 
     // Decode and resize the picture
-    block_in_place(|| {
+    let image = block_in_place(|| {
         let (width, height) = SCREEN_DIMENSIONS.into();
         let image = image::load_from_memory(&data)?;
         let image = image.resize_to_fill(width, height, FilterType::Lanczos3);
-        let image: AlignedRgbaImage = image.into();
 
-        Ok(WallpaperData { image })
-    })
+        anyhow::Ok(image.into())
+    })?;
+
+    Ok(WallpaperData { image })
 }
