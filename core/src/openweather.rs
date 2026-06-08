@@ -232,27 +232,30 @@ impl Icons {
 
 #[derive(Debug, Deserialize)]
 struct Message {
-    weather: Vec<WeatherRow>,
-    main: Main,
-    dt: i64,
-    sys: Sys,
+    data: Vec<Data>,
 }
 
 #[derive(Debug, Deserialize)]
-struct WeatherRow {
+struct Data {
+    dt: i64,
+    sunrise: i64,
+    sunset: i64,
+    pressure: i32,
+    weather: Vec<Weather>,
+    rain: Option<RainOrSnow>,
+    snow: Option<RainOrSnow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Weather {
     id: i32,
     description: CompactString,
 }
 
 #[derive(Debug, Deserialize)]
-struct Main {
-    pressure: i32,
-}
-
-#[derive(Debug, Deserialize)]
-struct Sys {
-    sunrise: i64,
-    sunset: i64,
+struct RainOrSnow {
+    #[serde(rename = "1h")]
+    hourly: f32,
 }
 
 #[derive(Debug)]
@@ -260,6 +263,8 @@ pub struct OpenWeatherData {
     pub icon: AlignedRgbaImage,
     pub description: CompactString,
     pub pressure: i32,
+    #[allow(dead_code)]
+    pub rainfall: f32,
 }
 
 pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
@@ -291,7 +296,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
 }
 
 async fn inquire() -> anyhow::Result<OpenWeatherData> {
-    const BASE_URL: &str = "https://api.openweathermap.org/data/2.5/weather";
+    const BASE_URL: &str = "https://api.openweathermap.org/data/4.0/onecall/current";
 
     let settings::OpenWeather { lat, lon, api_key } = settings::openweather();
 
@@ -299,25 +304,32 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
         ("lat", &lat.to_compact_string()),
         ("lon", &lon.to_compact_string()),
         ("appid", api_key),
+        ("units", "metric"),
+        ("lang", "en"),
     ];
     let url = Url::parse_with_params(BASE_URL, params)?;
 
     let msg: Message = REST_CLIENT.get(url).send().await?.json().await?;
-    let Some(weather) = msg.weather.into_iter().next() else {
-        bail!("Bad message format");
+    let Some(data) = msg.data.into_iter().next() else {
+        bail!("Bad message format (data is empty)");
+    };
+    let Some(weather) = data.weather.into_iter().next() else {
+        bail!("Bad message format (weather is empty)");
     };
     let icon = block_in_place(|| {
-        let is_day = (msg.sys.sunrise..msg.sys.sunset).contains(&msg.dt);
+        let is_day = (data.sunrise..data.sunset).contains(&data.dt);
         let icon = Icons::from_openweather_id(weather.id, is_day)?;
         let image = image::load_from_memory(icon.as_bytes())?;
         let image: AlignedRgbaImage = image.into();
 
         anyhow::Ok(image)
     })?;
+    let rainfall = data.rain.or(data.snow).map(|rain| rain.hourly).unwrap_or(0.0);
 
     Ok(OpenWeatherData {
         icon,
         description: weather.description,
-        pressure: msg.main.pressure,
+        pressure: data.pressure,
+        rainfall,
     })
 }
