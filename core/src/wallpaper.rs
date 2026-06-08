@@ -80,9 +80,9 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     // Get random picture info from Wallhaven
     let atleast = format_compact!("{}x{}", SCREEN_DIMENSIONS.0, SCREEN_DIMENSIONS.1);
     let params: [(&str, &str); _] = [
-        ("q", &query),
-        ("categories", &categories),
-        ("purity", &purity),
+        ("q", query),
+        ("categories", categories),
+        ("purity", purity),
         ("atleast", &atleast),
         ("sorting", "random"),
     ];
