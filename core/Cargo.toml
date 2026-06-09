@@ -25,7 +25,7 @@ hmac-sha256 = "1.1.14"
 image = {
     version = "0.25.10",
     default-features = false,
-    features = ["jpeg", "png"]
+    features = ["jpeg", "webp"]
 }
 itertools = "0.14.0"
 log = "0.4.32"
