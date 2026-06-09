@@ -65,7 +65,9 @@ enum Icons {
 }
 
 impl Icons {
+    #[allow(clippy::too_many_lines)]
     fn from_openweather_id(id: i32, is_day: bool) -> anyhow::Result<Self> {
+        #[allow(clippy::match_same_arms)]
         let icon = match (id, is_day) {
             (200, true) => Icons::DayThunderstorm,
             (201, true) => Icons::DayThunderstorm,
@@ -323,7 +325,7 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
 
         anyhow::Ok(image.into())
     })?;
-    let rainfall = data.rain.or(data.snow).map(|rain| rain.hourly).unwrap_or(0.0);
+    let rainfall = data.rain.or(data.snow).map_or(0.0, |rain| rain.hourly);
 
     Ok(OpenWeatherData {
         icon,

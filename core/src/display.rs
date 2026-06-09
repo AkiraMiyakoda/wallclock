@@ -39,6 +39,7 @@ use format::WithCommas;
 use image::Pixel;
 use image::Rgba;
 use log::error;
+use num_traits::ToPrimitive;
 use tokio::select;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -166,16 +167,16 @@ impl DrawContext {
             datetime.format("%M").to_compact_string(),
             datetime.format("%S").to_compact_string(),
         );
-        self.draw_text(&lines.0, 525, 420, 300, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.1, 525, 730, 300, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.2, 575, 700, 150, TEXT_COLOR, TextAnchor::BottomLeft);
+        self.draw_text(&lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+        self.draw_text(&lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
         let lines = (
             datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
             datetime.format("%a").to_compact_string().to_ascii_uppercase(),
         );
-        self.draw_text(&lines.0, 2400, 100, 140, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.1, 2400, 280, 140, TEXT_COLOR, TextAnchor::TopRight);
+        self.draw_text(&lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+        self.draw_text(&lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
 
         // Draw SwitchBot measurements
         self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
@@ -188,33 +189,33 @@ impl DrawContext {
                 format_compact!("{:.1}", data.indoor.temperature),
                 format_compact!("{:}", data.indoor.humidity),
             );
-            self.draw_text(&lines.0, 160, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 370, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 410, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 370, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 430, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
                 devices.1.name.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.outdoor.temperature),
                 format_compact!("{:}", data.outdoor.humidity),
             );
-            self.draw_text(&lines.0, 640, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 850, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 890, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 850, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 910, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
                 devices.2.name.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.tank.temperature),
                 format_compact!("{:}", data.tank.humidity),
             );
-            self.draw_text(&lines.0, 1110, 1110, 80, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 1320, 1360, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 1370, 1355, 80, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 1330, 1500, 110, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 1390, 1495, 80, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            self.draw_text(&lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
         // Draw OpenWeather measurements
@@ -227,9 +228,9 @@ impl DrawContext {
                 data.description.to_ascii_uppercase(),
                 format_compact!("{}", WithCommas::from(data.pressure)),
             );
-            self.draw_text(&lines.0, 2055, 1340, 70, TEXT_COLOR, TextAnchor::BottomCenter);
-            self.draw_text(&lines.1, 2100, 1500, 105, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("hPA", 2130, 1495, 75, TEXT_COLOR, TextAnchor::BottomLeft);
+            self.draw_text(&lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
+            self.draw_text(&lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text("hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
         // Flip
@@ -289,8 +290,8 @@ impl DrawContext {
         }
     }
 
-    fn draw_text(&mut self, text: &str, x: u32, y: u32, size: u32, color: Color, anchor: TextAnchor) {
-        let metrics = Metrics::new(size as f32, size as f32 * 1.2);
+    fn draw_text(&mut self, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
+        let metrics = Metrics::new(size, size * 1.2);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut buffer = buffer.borrow_with(&mut self.font_system);
 
@@ -299,27 +300,34 @@ impl DrawContext {
 
         let width = buffer
             .layout_runs()
-            .map(|run| run.line_w.ceil() as i32)
+            .map(|run| run.line_w.ceil().to_i32().unwrap_or(0))
             .max()
             .unwrap_or(0);
-        let height: i32 = buffer.layout_runs().map(|run| run.line_height.ceil() as i32).sum();
+        let height: i32 = buffer
+            .layout_runs()
+            .map(|run| run.line_height.ceil().to_i32().unwrap_or(0))
+            .sum();
 
         buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
             if w != 1 || h != 1 {
                 return;
             }
 
+            let (x, y) = (x.cast_signed(), y.cast_signed());
             let x = match anchor {
-                TextAnchor::TopLeft | TextAnchor::BottomLeft => x as i32 + bx,
-                TextAnchor::TopCenter | TextAnchor::BottomCenter => x as i32 - width / 2 + bx,
-                TextAnchor::TopRight | TextAnchor::BottomRight => x as i32 - width + bx,
+                TextAnchor::TopLeft | TextAnchor::BottomLeft => x + bx,
+                TextAnchor::TopCenter | TextAnchor::BottomCenter => x - width / 2 + bx,
+                TextAnchor::TopRight | TextAnchor::BottomRight => x - width + bx,
             };
             let y = match anchor {
-                TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y as i32 + by,
-                TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y as i32 - height + by,
+                TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y + by,
+                TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y - height + by,
+            };
+            let (Some(x), Some(y)) = (x.to_u32(), y.to_u32()) else {
+                return;
             };
 
-            if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x as u32, y as u32) {
+            if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
                 pixel.blend(&Rgba(color.as_rgba()));
             }
         });
@@ -373,7 +381,7 @@ async fn draw_worker() -> anyhow::Result<()> {
         let bundle = BUNDLE.read().await;
 
         if let Err(e) = block_in_place(|| context.draw(&bundle)) {
-            error!("Failed to draw: {e:?}")
+            error!("Failed to draw: {e:?}");
         }
     }
 }

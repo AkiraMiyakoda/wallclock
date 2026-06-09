@@ -28,6 +28,7 @@ use crate::settings;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_field_names)]
 struct Message {
     status_code: i32,
     message: String,
@@ -86,7 +87,7 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
 
     let settings::Switchbot { devices, token, secret } = settings::switchbot();
 
-    let task = async |device_id: &str| {
+    let inner_task = async |device_id: &str| {
         let path = Path::new("/v1.1/devices").join(device_id).join("status");
 
         let url = Url::parse(BASE_URL)?;
@@ -102,14 +103,17 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
         if msg.status_code != 100 {
             bail!("Switchbot API error: {} {}", msg.status_code, msg.message);
         }
-        let Some(body) = msg.body else {
+        let Some(Body::WoIOSensor(body)) = msg.body else {
             bail!("Invalid message format");
         };
 
         anyhow::Ok(body)
     };
-    let results = try_join!(task(&devices.0.id), task(&devices.1.id), task(&devices.2.id))?;
-    let (Body::WoIOSensor(indoor), Body::WoIOSensor(outdoor), Body::WoIOSensor(tank)) = results;
+    let (indoor, outdoor, tank) = try_join!(
+        inner_task(&devices.0.id),
+        inner_task(&devices.1.id),
+        inner_task(&devices.2.id)
+    )?;
 
     Ok(SwitchBotData { indoor, outdoor, tank })
 }

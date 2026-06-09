@@ -3,6 +3,7 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+#[allow(clippy::wildcard_imports)]
 use std::arch::x86_64::*;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -30,19 +31,23 @@ impl AlignedRgbaImage {
         }
     }
 
+    #[inline]
     pub fn width(&self) -> u32 {
         self.width
     }
 
+    #[inline]
     pub fn height(&self) -> u32 {
         self.height
     }
 
+    #[inline]
     pub fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Rgba<u8> {
         let i = ((y * self.width + x) * 4) as usize;
         <Rgba<u8> as Pixel>::from_slice_mut(&mut self.data[i..(i + 4)])
     }
 
+    #[inline]
     pub fn get_pixel_mut_checked(&mut self, x: u32, y: u32) -> Option<&mut Rgba<u8>> {
         if x >= self.width || y >= self.height {
             return None;
@@ -54,6 +59,7 @@ impl AlignedRgbaImage {
 }
 
 impl From<DynamicImage> for AlignedRgbaImage {
+    #[allow(clippy::cast_ptr_alignment)]
     fn from(value: DynamicImage) -> Self {
         // Dynamic image to RGBA Bitmap
         let image = value.into_rgba8();
@@ -71,7 +77,7 @@ impl From<DynamicImage> for AlignedRgbaImage {
             for _ in 0..data.len() / 32 {
                 let row = _mm256_load_si256(ptr as *const __m256i);
                 let row = _mm256_shuffle_epi8(row, shuffle_mask);
-                _mm256_store_si256(ptr as *mut __m256i, row);
+                _mm256_store_si256(ptr.cast::<__m256i>(), row);
 
                 ptr = ptr.add(32);
             }
@@ -112,6 +118,7 @@ impl AsRef<[u8]> for AlignedRgbaImage {
 }
 
 #[inline]
+#[allow(clippy::cast_ptr_alignment)]
 pub fn alphablend_x8<T, U>(src: &[T], dst: &mut [U]) {
     debug_assert!(size_of_val(src) >= 32);
     debug_assert!(size_of_val(dst) >= 32);
@@ -122,10 +129,10 @@ pub fn alphablend_x8<T, U>(src: &[T], dst: &mut [U]) {
             15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
             15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
         );
-        let alpha_mask = _mm256_set1_epi32(0xff000000_u32 as i32);
+        let alpha_mask = _mm256_set1_epi32(0xff00_0000_u32.cast_signed());
 
         // Load 8 pixels each from src and dst
-        let src_8x8 = _mm256_load_si256(src.as_ptr() as *const __m256i);
+        let src_8x8 = _mm256_load_si256(src.as_ptr().cast::<__m256i>());
 
         // Do nothing if all alpha values are zero
         let alpha = _mm256_and_si256(src_8x8, alpha_mask);
@@ -133,7 +140,7 @@ pub fn alphablend_x8<T, U>(src: &[T], dst: &mut [U]) {
             return;
         }
 
-        let dst_8x8 = _mm256_load_si256(dst.as_ptr() as *const __m256i);
+        let dst_8x8 = _mm256_load_si256(dst.as_ptr().cast::<__m256i>());
 
         // Unpack each channel to 16bit (lo, hi)
         let zero = _mm256_setzero_si256();
@@ -174,7 +181,7 @@ pub fn alphablend_x8<T, U>(src: &[T], dst: &mut [U]) {
 
         // Store the result
         _mm256_store_si256(
-            dst.as_mut_ptr() as *mut __m256i,
+            dst.as_mut_ptr().cast::<__m256i>(),
             _mm256_packus_epi16(dst_16x8.0, dst_16x8.1),
         );
     }
