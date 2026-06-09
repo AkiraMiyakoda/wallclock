@@ -22,7 +22,11 @@ format = {
     branch = "main"
 }
 hmac-sha256 = "1.1.14"
-image = "0.25.10"
+image = {
+    version = "0.25.10",
+    default-features = false,
+    features = ["jpeg", "png"]
+}
 itertools = "0.14.0"
 log = "0.4.32"
 logger = {
