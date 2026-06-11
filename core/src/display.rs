@@ -146,98 +146,107 @@ impl DrawContext {
         })
     }
 
-    fn draw(&mut self, bundle: &DataBundle) -> anyhow::Result<()> {
+    async fn draw(&mut self) -> anyhow::Result<()> {
         const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
         const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
         // Draw wallpaper
-        if let Some(wallpaper) = &bundle.wallpaper {
-            self.back_buffer.copy_from_slice(&wallpaper.image);
+        if let Some(wallpaper) = &*WALLPAPER.read().await {
+            block_in_place(|| self.back_buffer.copy_from_slice(&wallpaper.image));
         } else {
-            self.back_buffer.fill(0);
+            block_in_place(|| self.back_buffer.fill(0));
         }
 
+        // Draw rectangles
+        block_in_place(|| {
+            self.fill_rect(50, 50, 880, 750, RECT_COLOR);
+            self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
+            self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
+            self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
+        });
+
         // Draw time and date
-        self.fill_rect(50, 50, 880, 750, RECT_COLOR);
-        self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
+        block_in_place(|| {
+            let datetime = Local::now();
+            let lines = (
+                datetime.format("%H").to_compact_string(),
+                datetime.format("%M").to_compact_string(),
+                datetime.format("%S").to_compact_string(),
+            );
+            self.draw_text(&lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+            self.draw_text(&lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
-        let datetime = Local::now();
-        let lines = (
-            datetime.format("%H").to_compact_string(),
-            datetime.format("%M").to_compact_string(),
-            datetime.format("%S").to_compact_string(),
-        );
-        self.draw_text(&lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
-        self.draw_text(&lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
-
-        let lines = (
-            datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
-            datetime.format("%a").to_compact_string().to_ascii_uppercase(),
-        );
-        self.draw_text(&lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
-        self.draw_text(&lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+            let lines = (
+                datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
+                datetime.format("%a").to_compact_string().to_ascii_uppercase(),
+            );
+            self.draw_text(&lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+            self.draw_text(&lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+        });
 
         // Draw SwitchBot measurements
-        self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
+        if let Some(data) = &*SWITCHBOT.read().await {
+            block_in_place(|| {
+                let settings::Switchbot { devices, .. } = settings::switchbot();
 
-        if let Some(data) = &bundle.switchbot {
-            let settings::Switchbot { devices, .. } = settings::switchbot();
+                let lines = (
+                    devices.0.name.to_ascii_uppercase(),
+                    format_compact!("{:.1}", data.indoor.temperature),
+                    format_compact!("{:}", data.indoor.humidity),
+                );
+                self.draw_text(&lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                self.draw_text(&lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
-            let lines = (
-                devices.0.name.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.indoor.temperature),
-                format_compact!("{:}", data.indoor.humidity),
-            );
-            self.draw_text(&lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                let lines = (
+                    devices.1.name.to_ascii_uppercase(),
+                    format_compact!("{:.1}", data.outdoor.temperature),
+                    format_compact!("{:}", data.outdoor.humidity),
+                );
+                self.draw_text(&lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                self.draw_text(&lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
-            let lines = (
-                devices.1.name.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.outdoor.temperature),
-                format_compact!("{:}", data.outdoor.humidity),
-            );
-            self.draw_text(&lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-
-            let lines = (
-                devices.2.name.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.tank.temperature),
-                format_compact!("{:}", data.tank.humidity),
-            );
-            self.draw_text(&lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            self.draw_text(&lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            self.draw_text(&lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                let lines = (
+                    devices.2.name.to_ascii_uppercase(),
+                    format_compact!("{:.1}", data.tank.temperature),
+                    format_compact!("{:}", data.tank.humidity),
+                );
+                self.draw_text(&lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+                self.draw_text(&lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                self.draw_text(&lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            });
         }
 
         // Draw OpenWeather measurements
-        self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
+        if let Some(data) = &*OPENWEATHER.read().await {
+            block_in_place(|| {
+                self.draw_image(1888, 920, &data.icon);
 
-        if let Some(data) = &bundle.openweather {
-            self.draw_image(1888, 920, &data.icon);
-
-            let lines = (
-                data.description.to_ascii_uppercase(),
-                format_compact!("{}", WithCommas::from(data.pressure)),
-            );
-            self.draw_text(&lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
-            self.draw_text(&lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text("hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
+                let lines = (
+                    data.description.to_ascii_uppercase(),
+                    format_compact!("{}", WithCommas::from(data.pressure)),
+                );
+                self.draw_text(&lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
+                self.draw_text(&lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
+                self.draw_text("hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            });
         }
 
         // Flip
-        {
+        block_in_place(|| {
             let mut map = self.card.map_dumb_buffer(&mut self.dumb_buffer)?;
             map.copy_from_slice(&self.back_buffer);
-        }
+
+            anyhow::Ok(())
+        })?;
 
         Ok(())
     }
@@ -334,24 +343,9 @@ impl DrawContext {
     }
 }
 
-#[derive(Debug)]
-struct DataBundle {
-    switchbot: Option<SwitchBotData>,
-    openweather: Option<OpenWeatherData>,
-    wallpaper: Option<WallpaperData>,
-}
-
-impl DataBundle {
-    fn new() -> Self {
-        Self {
-            switchbot: None,
-            openweather: None,
-            wallpaper: None,
-        }
-    }
-}
-
-static BUNDLE: LazyLock<RwLock<DataBundle>> = LazyLock::new(|| RwLock::new(DataBundle::new()));
+static SWITCHBOT: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
+static OPENWEATHER: LazyLock<RwLock<Option<OpenWeatherData>>> = LazyLock::new(|| RwLock::new(None));
+static WALLPAPER: LazyLock<RwLock<Option<WallpaperData>>> = LazyLock::new(|| RwLock::new(None));
 
 pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     select! {
@@ -378,9 +372,7 @@ async fn draw_worker() -> anyhow::Result<()> {
 
         last_tick = tick;
 
-        let bundle = BUNDLE.read().await;
-
-        if let Err(e) = block_in_place(|| context.draw(&bundle)) {
+        if let Err(e) = context.draw().await {
             error!("Failed to draw: {e:?}");
         }
     }
@@ -388,12 +380,10 @@ async fn draw_worker() -> anyhow::Result<()> {
 
 async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     while let Some(update) = receiver.recv().await {
-        let mut bundle = BUNDLE.write().await;
-
         match update {
-            Update::SwitchBot(data) => bundle.switchbot = Some(data),
-            Update::OpenWeather(data) => bundle.openweather = Some(data),
-            Update::Wallpaper(data) => bundle.wallpaper = Some(data),
+            Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
+            Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
+            Update::Wallpaper(data) => *WALLPAPER.write().await = Some(data),
         }
     }
 
