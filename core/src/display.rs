@@ -192,6 +192,7 @@ async fn draw_worker() -> anyhow::Result<()> {
         }
 
         let alpha = if fade_tick >= 0 {
+            #[allow(clippy::cast_sign_loss)]
             Some(((30 - fade_tick).abs() * 255 / 30).clamp(0, 255) as u8)
         } else {
             None
@@ -245,14 +246,14 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
 
     block_in_place(|| {
         // Draw wallpaper
-        if let Some(wallpaper) = wallpaper.iter().next() {
+        if let Some(wallpaper) = wallpaper.front() {
             ctx.back_buffer.copy_from_slice(&wallpaper.image);
+
+            if let Some(alpha) = alpha {
+                darken(&mut ctx.back_buffer, alpha);
+            }
         } else {
             ctx.back_buffer.fill(0);
-        }
-
-        if let Some(alpha) = alpha {
-            darken(&mut ctx.back_buffer, alpha);
         }
 
         // Draw time and date
@@ -334,49 +335,6 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
-    let metrics = Metrics::new(size, size * 1.2);
-    let mut buffer = Buffer::new(&mut ctx.font_system, metrics);
-    let mut buffer = buffer.borrow_with(&mut ctx.font_system);
-
-    let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
-    buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
-
-    let width = buffer
-        .layout_runs()
-        .map(|run| run.line_w.ceil().to_i32().unwrap_or(0))
-        .max()
-        .unwrap_or(0);
-    let height: i32 = buffer
-        .layout_runs()
-        .map(|run| run.line_height.ceil().to_i32().unwrap_or(0))
-        .sum();
-
-    buffer.draw(&mut ctx.swash_cache, color, |bx, by, w, h, color| {
-        if w != 1 || h != 1 {
-            return;
-        }
-
-        let (x, y) = (x.cast_signed(), y.cast_signed());
-        let x = match anchor {
-            TextAnchor::TopLeft | TextAnchor::BottomLeft => x + bx,
-            TextAnchor::TopCenter | TextAnchor::BottomCenter => x - width / 2 + bx,
-            TextAnchor::TopRight | TextAnchor::BottomRight => x - width + bx,
-        };
-        let y = match anchor {
-            TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y + by,
-            TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y - height + by,
-        };
-        let (Some(x), Some(y)) = (x.to_u32(), y.to_u32()) else {
-            return;
-        };
-
-        if let Some(pixel) = ctx.back_buffer.get_pixel_mut_checked(x, y) {
-            pixel.blend(&Rgba(color.as_rgba()));
-        }
-    });
-}
-
 fn darken(dst: &mut AlignedImage, alpha: u8) {
     unsafe {
         // Set up alpha
@@ -427,6 +385,49 @@ fn darken(dst: &mut AlignedImage, alpha: u8) {
             pdst = pdst.add(1);
         }
     }
+}
+
+fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
+    let metrics = Metrics::new(size, size * 1.2);
+    let mut buffer = Buffer::new(&mut ctx.font_system, metrics);
+    let mut buffer = buffer.borrow_with(&mut ctx.font_system);
+
+    let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
+    buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
+
+    let width = buffer
+        .layout_runs()
+        .map(|run| run.line_w.ceil().to_i32().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
+    let height: i32 = buffer
+        .layout_runs()
+        .map(|run| run.line_height.ceil().to_i32().unwrap_or(0))
+        .sum();
+
+    buffer.draw(&mut ctx.swash_cache, color, |bx, by, w, h, color| {
+        if w != 1 || h != 1 {
+            return;
+        }
+
+        let (x, y) = (x.cast_signed(), y.cast_signed());
+        let x = match anchor {
+            TextAnchor::TopLeft | TextAnchor::BottomLeft => x + bx,
+            TextAnchor::TopCenter | TextAnchor::BottomCenter => x - width / 2 + bx,
+            TextAnchor::TopRight | TextAnchor::BottomRight => x - width + bx,
+        };
+        let y = match anchor {
+            TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y + by,
+            TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y - height + by,
+        };
+        let (Some(x), Some(y)) = (x.to_u32(), y.to_u32()) else {
+            return;
+        };
+
+        if let Some(pixel) = ctx.back_buffer.get_pixel_mut_checked(x, y) {
+            pixel.blend(&Rgba(color.as_rgba()));
+        }
+    });
 }
 
 fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
