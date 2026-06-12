@@ -22,7 +22,7 @@ use tokio::time::interval;
 use crate::REST_CLIENT;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
-use crate::alphablend::AlignedRgbaImage;
+use crate::image::AlignedImage;
 
 #[derive(Debug, Deserialize)]
 struct Message {
@@ -36,7 +36,7 @@ struct Image {
 
 #[derive(Debug)]
 pub struct WallpaperData {
-    pub image: AlignedRgbaImage,
+    pub image: AlignedImage,
 }
 
 pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {

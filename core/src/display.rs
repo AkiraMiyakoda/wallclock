@@ -3,6 +3,8 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+#[allow(clippy::wildcard_imports)]
+use std::arch::x86_64::*;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::os::fd::AsFd;
@@ -11,8 +13,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use aligned_vec::CACHELINE_ALIGN;
-use aligned_vec::avec;
 use anyhow::anyhow;
 use chrono::Local;
 use chrono::Utc;
@@ -49,8 +49,7 @@ use tokio::time::interval;
 
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
-use crate::alphablend::AlignedRgbaImage;
-use crate::alphablend::alphablend_x8;
+use crate::image::AlignedImage;
 use crate::openweather::OpenWeatherData;
 use crate::settings;
 use crate::switchbot::SwitchBotData;
@@ -84,7 +83,7 @@ struct DrawContext {
     card: Card,
     dumb_buffer: DumbBuffer,
     frame_buffer: framebuffer::Handle,
-    back_buffer: AlignedRgbaImage,
+    back_buffer: AlignedImage,
     font_system: FontSystem,
     swash_cache: SwashCache,
 }
@@ -140,206 +139,10 @@ impl DrawContext {
             card,
             dumb_buffer,
             frame_buffer,
-            back_buffer: AlignedRgbaImage::new(screen_width, screen_height),
+            back_buffer: AlignedImage::new(screen_width, screen_height),
             font_system: FontSystem::new_with_fonts(fonts),
             swash_cache: SwashCache::new(),
         })
-    }
-
-    async fn draw(&mut self) -> anyhow::Result<()> {
-        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
-        const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
-
-        // Draw wallpaper
-        if let Some(wallpaper) = &*WALLPAPER.read().await {
-            block_in_place(|| self.back_buffer.copy_from_slice(&wallpaper.image));
-        } else {
-            block_in_place(|| self.back_buffer.fill(0));
-        }
-
-        // Draw rectangles
-        block_in_place(|| {
-            self.fill_rect(50, 50, 880, 750, RECT_COLOR);
-            self.fill_rect(1380, 50, 2510, 510, RECT_COLOR);
-            self.fill_rect(50, 1060, 1550, 1550, RECT_COLOR);
-            self.fill_rect(1600, 860, 2510, 1550, RECT_COLOR);
-        });
-
-        // Draw time and date
-        block_in_place(|| {
-            let datetime = Local::now();
-            let lines = (
-                datetime.format("%H").to_compact_string(),
-                datetime.format("%M").to_compact_string(),
-                datetime.format("%S").to_compact_string(),
-            );
-            self.draw_text(&lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text(&lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
-            self.draw_text(&lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
-
-            let lines = (
-                datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
-                datetime.format("%a").to_compact_string().to_ascii_uppercase(),
-            );
-            self.draw_text(&lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
-            self.draw_text(&lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
-        });
-
-        // Draw SwitchBot measurements
-        if let Some(data) = &*SWITCHBOT.read().await {
-            block_in_place(|| {
-                let settings::Switchbot { devices, .. } = settings::switchbot();
-
-                let lines = (
-                    devices.0.name.to_ascii_uppercase(),
-                    format_compact!("{:.1}", data.indoor.temperature),
-                    format_compact!("{:}", data.indoor.humidity),
-                );
-                self.draw_text(&lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-                self.draw_text(&lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-                self.draw_text(&lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-
-                let lines = (
-                    devices.1.name.to_ascii_uppercase(),
-                    format_compact!("{:.1}", data.outdoor.temperature),
-                    format_compact!("{:}", data.outdoor.humidity),
-                );
-                self.draw_text(&lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-                self.draw_text(&lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-                self.draw_text(&lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-
-                let lines = (
-                    devices.2.name.to_ascii_uppercase(),
-                    format_compact!("{:.1}", data.tank.temperature),
-                    format_compact!("{:}", data.tank.humidity),
-                );
-                self.draw_text(&lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-                self.draw_text(&lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-                self.draw_text(&lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            });
-        }
-
-        // Draw OpenWeather measurements
-        if let Some(data) = &*OPENWEATHER.read().await {
-            block_in_place(|| {
-                self.draw_image(1888, 920, &data.icon);
-
-                let lines = (
-                    data.description.to_ascii_uppercase(),
-                    format_compact!("{}", WithCommas::from(data.pressure)),
-                );
-                self.draw_text(&lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
-                self.draw_text(&lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
-                self.draw_text("hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            });
-        }
-
-        // Flip
-        block_in_place(|| {
-            let mut map = self.card.map_dumb_buffer(&mut self.dumb_buffer)?;
-            map.copy_from_slice(&self.back_buffer);
-
-            anyhow::Ok(())
-        })?;
-
-        Ok(())
-    }
-
-    fn fill_rect(&mut self, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
-        let r = r.min(self.back_buffer.width());
-        let t = t.min(self.back_buffer.height());
-
-        if l >= r || t >= b {
-            return;
-        }
-
-        let src = avec![[CACHELINE_ALIGN]| color; 8];
-        let dst_stride = self.back_buffer.width() * 4;
-
-        for y in t..b {
-            for x in l.div_ceil(8)..(r / 8) {
-                let dst_offset = (y * dst_stride + x * 32) as usize;
-                alphablend_x8(&src, &mut self.back_buffer[dst_offset..dst_offset + 32]);
-            }
-        }
-
-        for y in t..b {
-            for x in l..(l.div_ceil(8) * 8) {
-                self.back_buffer.get_pixel_mut(x, y).blend(&color);
-            }
-            for x in (r / 8 * 8)..r {
-                self.back_buffer.get_pixel_mut(x, y).blend(&color);
-            }
-        }
-    }
-
-    fn draw_image(&mut self, x: u32, y: u32, src: &AlignedRgbaImage) {
-        assert!(x.is_multiple_of(8));
-        assert!(src.width().is_multiple_of(8));
-
-        let src_stride = src.width() * 4;
-        let dst_stride = self.back_buffer.width() * 4;
-
-        for src_y in 0..src.height() {
-            for src_x in 0..src.width() / 8 {
-                let src_offset = (src_y * src_stride + src_x * 32) as usize;
-                let dst_offset = ((y + src_y) * dst_stride + (x / 8 + src_x) * 32) as usize;
-
-                alphablend_x8(
-                    &src[src_offset..src_offset + 32],
-                    &mut self.back_buffer[dst_offset..dst_offset + 32],
-                );
-            }
-        }
-    }
-
-    fn draw_text(&mut self, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
-        let metrics = Metrics::new(size, size * 1.2);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        let mut buffer = buffer.borrow_with(&mut self.font_system);
-
-        let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
-        buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
-
-        let width = buffer
-            .layout_runs()
-            .map(|run| run.line_w.ceil().to_i32().unwrap_or(0))
-            .max()
-            .unwrap_or(0);
-        let height: i32 = buffer
-            .layout_runs()
-            .map(|run| run.line_height.ceil().to_i32().unwrap_or(0))
-            .sum();
-
-        buffer.draw(&mut self.swash_cache, color, |bx, by, w, h, color| {
-            if w != 1 || h != 1 {
-                return;
-            }
-
-            let (x, y) = (x.cast_signed(), y.cast_signed());
-            let x = match anchor {
-                TextAnchor::TopLeft | TextAnchor::BottomLeft => x + bx,
-                TextAnchor::TopCenter | TextAnchor::BottomCenter => x - width / 2 + bx,
-                TextAnchor::TopRight | TextAnchor::BottomRight => x - width + bx,
-            };
-            let y = match anchor {
-                TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y + by,
-                TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y - height + by,
-            };
-            let (Some(x), Some(y)) = (x.to_u32(), y.to_u32()) else {
-                return;
-            };
-
-            if let Some(pixel) = self.back_buffer.get_pixel_mut_checked(x, y) {
-                pixel.blend(&Rgba(color.as_rgba()));
-            }
-        });
     }
 }
 
@@ -372,7 +175,7 @@ async fn draw_worker() -> anyhow::Result<()> {
 
         last_tick = tick;
 
-        if let Err(e) = context.draw().await {
+        if let Err(e) = draw(&mut context).await {
             error!("Failed to draw: {e:?}");
         }
     }
@@ -383,9 +186,341 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
         match update {
             Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
             Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
-            Update::Wallpaper(data) => *WALLPAPER.write().await = Some(data),
+            Update::Wallpaper(mut data) => {
+                block_in_place(|| {
+                    const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
+
+                    // Draw rectangles
+                    fill_rect(&mut data.image, 50, 50, 880, 750, RECT_COLOR);
+                    fill_rect(&mut data.image, 1380, 50, 2510, 510, RECT_COLOR);
+                    fill_rect(&mut data.image, 50, 1060, 1550, 1550, RECT_COLOR);
+                    fill_rect(&mut data.image, 1600, 860, 2510, 1550, RECT_COLOR);
+                });
+                *WALLPAPER.write().await = Some(data)
+            }
         }
     }
 
     Ok(())
+}
+
+async fn draw(ctx: &mut DrawContext) -> anyhow::Result<()> {
+    const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
+
+    let wallpaper = &*WALLPAPER.read().await;
+    let switchbot = &*SWITCHBOT.read().await;
+    let openweather = &*OPENWEATHER.read().await;
+
+    block_in_place(|| {
+        // Draw wallpaper
+        if let Some(wallpaper) = wallpaper {
+            ctx.back_buffer.copy_from_slice(&wallpaper.image);
+        } else {
+            ctx.back_buffer.fill(0);
+        }
+
+        // Draw time and date
+        let datetime = Local::now();
+        let lines = (
+            datetime.format("%H").to_compact_string(),
+            datetime.format("%M").to_compact_string(),
+            datetime.format("%S").to_compact_string(),
+        );
+        draw_text(ctx, &lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+        draw_text(ctx, &lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
+        draw_text(ctx, &lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
+
+        let lines = (
+            datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
+            datetime.format("%a").to_compact_string().to_ascii_uppercase(),
+        );
+        draw_text(ctx, &lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+        draw_text(ctx, &lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+
+        // Draw SwitchBot measurements
+        if let Some(data) = switchbot {
+            let settings::Switchbot { devices, .. } = settings::switchbot();
+
+            let lines = (
+                devices.0.name.to_ascii_uppercase(),
+                format_compact!("{:.1}", data.indoor.temperature),
+                format_compact!("{:}", data.indoor.humidity),
+            );
+            draw_text(ctx, &lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            draw_text(ctx, &lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+
+            let lines = (
+                devices.1.name.to_ascii_uppercase(),
+                format_compact!("{:.1}", data.outdoor.temperature),
+                format_compact!("{:}", data.outdoor.humidity),
+            );
+            draw_text(ctx, &lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            draw_text(ctx, &lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+
+            let lines = (
+                devices.2.name.to_ascii_uppercase(),
+                format_compact!("{:.1}", data.tank.temperature),
+                format_compact!("{:}", data.tank.humidity),
+            );
+            draw_text(ctx, &lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+            draw_text(ctx, &lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
+        }
+
+        // Draw OpenWeather measurements
+        if let Some(data) = openweather {
+            draw_image(&mut ctx.back_buffer, 1888, 920, &data.icon);
+
+            let lines = (
+                data.description.to_ascii_uppercase(),
+                format_compact!("{}", WithCommas::from(data.pressure)),
+            );
+            draw_text(ctx, &lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
+            draw_text(ctx, &lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, "hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
+        }
+
+        // Flip
+        let mut map = ctx.card.map_dumb_buffer(&mut ctx.dumb_buffer)?;
+        map.copy_from_slice(&ctx.back_buffer);
+
+        anyhow::Ok(())
+    })?;
+
+    Ok(())
+}
+
+fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
+    let metrics = Metrics::new(size, size * 1.2);
+    let mut buffer = Buffer::new(&mut ctx.font_system, metrics);
+    let mut buffer = buffer.borrow_with(&mut ctx.font_system);
+
+    let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
+    buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
+
+    let width = buffer
+        .layout_runs()
+        .map(|run| run.line_w.ceil().to_i32().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
+    let height: i32 = buffer
+        .layout_runs()
+        .map(|run| run.line_height.ceil().to_i32().unwrap_or(0))
+        .sum();
+
+    buffer.draw(&mut ctx.swash_cache, color, |bx, by, w, h, color| {
+        if w != 1 || h != 1 {
+            return;
+        }
+
+        let (x, y) = (x.cast_signed(), y.cast_signed());
+        let x = match anchor {
+            TextAnchor::TopLeft | TextAnchor::BottomLeft => x + bx,
+            TextAnchor::TopCenter | TextAnchor::BottomCenter => x - width / 2 + bx,
+            TextAnchor::TopRight | TextAnchor::BottomRight => x - width + bx,
+        };
+        let y = match anchor {
+            TextAnchor::TopLeft | TextAnchor::TopCenter | TextAnchor::TopRight => y + by,
+            TextAnchor::BottomLeft | TextAnchor::BottomCenter | TextAnchor::BottomRight => y - height + by,
+        };
+        let (Some(x), Some(y)) = (x.to_u32(), y.to_u32()) else {
+            return;
+        };
+
+        if let Some(pixel) = ctx.back_buffer.get_pixel_mut_checked(x, y) {
+            pixel.blend(&Rgba(color.as_rgba()));
+        }
+    });
+}
+
+fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
+    let r = r.min(dst.width());
+    let t = t.min(dst.height());
+
+    if l >= r || t >= b {
+        return;
+    }
+
+    unsafe {
+        #[rustfmt::skip]
+        let shuffle_mask = _mm512_set_epi8(
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+        );
+        let alpha_mask = _mm512_set1_epi32(0xff00_0000_u32.cast_signed());
+        let zero = _mm512_setzero_si512();
+
+        // Set up src and alpha
+        let src_8x16 = _mm512_set1_epi32(i32::from_le_bytes(color.0));
+        let src_16x16 = (
+            _mm512_unpacklo_epi8(src_8x16, zero),
+            _mm512_unpackhi_epi8(src_8x16, zero),
+        );
+
+        let alpha_8x16 = _mm512_shuffle_epi8(src_8x16, shuffle_mask);
+        let alpha_16x16 = (
+            _mm512_unpacklo_epi8(alpha_8x16, zero),
+            _mm512_unpackhi_epi8(alpha_8x16, zero),
+        );
+
+        for y in t..b {
+            let dst_offset = (y * dst.width() * 4 + l.div_ceil(16) * 64) as usize;
+            let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
+
+            for _ in l.div_ceil(16)..(r / 16) {
+                // Load a 16-byte row from dst
+                let dst_8x16 = _mm512_load_si512(pdst);
+
+                // Unpack each channel to 16bit (lo, hi)
+                let dst_16x16 = (
+                    _mm512_unpacklo_epi8(dst_8x16, zero),
+                    _mm512_unpackhi_epi8(dst_8x16, zero),
+                );
+
+                // dst = (src * a + dst * (255 - a))
+                let src_16x16 = (
+                    _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
+                    _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
+                );
+                let dst_16x16 = (
+                    _mm512_mullo_epi16(dst_16x16.0, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.0)),
+                    _mm512_mullo_epi16(dst_16x16.1, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.1)),
+                );
+                let dst_16x16 = (
+                    _mm512_add_epi16(src_16x16.0, dst_16x16.0),
+                    _mm512_add_epi16(src_16x16.1, dst_16x16.1),
+                );
+
+                // dst = (dst + (dst >> 8) + 1) >> 8
+                let dst_16x16 = (
+                    _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
+                    _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
+                );
+                let dst_16x16 = (
+                    _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
+                    _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
+                );
+                let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
+
+                // Store the result
+                let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
+                let dst_8x16 = _mm512_or_si512(dst_8x16, alpha_mask);
+
+                _mm512_store_si512(pdst, dst_8x16);
+
+                pdst = pdst.add(1);
+            }
+        }
+    }
+
+    for y in t..b {
+        for x in l..(l.div_ceil(16) * 16) {
+            dst.get_pixel_mut(x, y).blend(&color);
+        }
+
+        for x in (r / 16 * 16)..r {
+            dst.get_pixel_mut(x, y).blend(&color);
+        }
+    }
+}
+
+fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
+    assert!(x.is_multiple_of(16));
+    assert!(src.width().is_multiple_of(16));
+
+    unsafe {
+        #[rustfmt::skip]
+        let shuffle_mask = _mm512_set_epi8(
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+            15, 15, 15, 15, 11, 11, 11, 11, 7, 7, 7, 7, 3, 3, 3, 3,
+        );
+        let alpha_mask = _mm512_set1_epi32(0xff00_0000_u32.cast_signed());
+        let zero = _mm512_setzero_si512();
+
+        let mut psrc: *const __m512i = src.as_ptr().cast();
+
+        for src_y in 0..src.height() {
+            let dst_offset = ((y + src_y) * dst.width() * 4 + x / 16 * 64) as usize;
+            let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
+
+            for _ in 0..src.width() / 16 {
+                // Load a 16-byte row from src
+                let src_8x16 = _mm512_load_si512(psrc);
+
+                // Skip if all alpha values are zero
+                if _mm512_test_epi32_mask(src_8x16, alpha_mask) == 0 {
+                    psrc = psrc.add(1);
+                    pdst = pdst.add(1);
+
+                    continue;
+                }
+
+                // Load a 16-byte row from dst
+                let dst_8x16 = _mm512_load_si512(pdst);
+
+                // Unpack each channel to 16bit (lo, hi)
+                let src_16x16 = (
+                    _mm512_unpacklo_epi8(src_8x16, zero),
+                    _mm512_unpackhi_epi8(src_8x16, zero),
+                );
+                let dst_16x16 = (
+                    _mm512_unpacklo_epi8(dst_8x16, zero),
+                    _mm512_unpackhi_epi8(dst_8x16, zero),
+                );
+
+                // Unpack alpha value
+                let alpha_8x16 = _mm512_shuffle_epi8(src_8x16, shuffle_mask);
+                let alpha_16x16 = (
+                    _mm512_unpacklo_epi8(alpha_8x16, zero),
+                    _mm512_unpackhi_epi8(alpha_8x16, zero),
+                );
+
+                // dst = (src * a + dst * (255 - a))
+                let src_16x16 = (
+                    _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
+                    _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
+                );
+                let dst_16x16 = (
+                    _mm512_mullo_epi16(dst_16x16.0, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.0)),
+                    _mm512_mullo_epi16(dst_16x16.1, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.1)),
+                );
+                let dst_16x16 = (
+                    _mm512_add_epi16(src_16x16.0, dst_16x16.0),
+                    _mm512_add_epi16(src_16x16.1, dst_16x16.1),
+                );
+
+                // dst = (dst + (dst >> 8) + 1) >> 8
+                let dst_16x16 = (
+                    _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
+                    _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
+                );
+                let dst_16x16 = (
+                    _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
+                    _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
+                );
+                let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
+
+                // Store the result
+                let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
+                let dst_8x16 = _mm512_or_si512(dst_8x16, alpha_mask);
+
+                _mm512_store_si512(pdst, dst_8x16);
+
+                psrc = psrc.add(1);
+                pdst = pdst.add(1);
+            }
+        }
+    }
 }

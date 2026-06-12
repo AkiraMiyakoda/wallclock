@@ -21,7 +21,7 @@ use tokio::time::interval;
 
 use crate::REST_CLIENT;
 use crate::Update;
-use crate::alphablend::AlignedRgbaImage;
+use crate::image::AlignedImage;
 use crate::settings;
 
 #[derive(Debug, Clone, Copy)]
@@ -259,7 +259,7 @@ struct Sys {
 
 #[derive(Debug)]
 pub struct OpenWeatherData {
-    pub icon: AlignedRgbaImage,
+    pub icon: AlignedImage,
     pub description: CompactString,
     pub pressure: i32,
 }
