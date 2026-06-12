@@ -196,7 +196,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
                     fill_rect(&mut data.image, 50, 1060, 1550, 1550, RECT_COLOR);
                     fill_rect(&mut data.image, 1600, 860, 2510, 1550, RECT_COLOR);
                 });
-                *WALLPAPER.write().await = Some(data)
+                *WALLPAPER.write().await = Some(data);
             }
         }
     }
