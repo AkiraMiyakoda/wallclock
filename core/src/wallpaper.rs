@@ -48,7 +48,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        let tick = (Utc::now().timestamp() - 30) / TimeDelta::minutes(5).num_seconds();
+        let tick = (Utc::now().timestamp() + 30) / TimeDelta::minutes(5).num_seconds();
         if tick == last_tick {
             continue;
         }

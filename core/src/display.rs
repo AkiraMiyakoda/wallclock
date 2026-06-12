@@ -5,6 +5,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use std::arch::x86_64::*;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::os::fd::AsFd;
@@ -148,7 +149,7 @@ impl DrawContext {
 
 static SWITCHBOT: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
 static OPENWEATHER: LazyLock<RwLock<Option<OpenWeatherData>>> = LazyLock::new(|| RwLock::new(None));
-static WALLPAPER: LazyLock<RwLock<Option<WallpaperData>>> = LazyLock::new(|| RwLock::new(None));
+static WALLPAPER: LazyLock<RwLock<VecDeque<WallpaperData>>> = LazyLock::new(|| RwLock::new(VecDeque::new()));
 
 pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     select! {
@@ -158,10 +159,13 @@ pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
 }
 
 async fn draw_worker() -> anyhow::Result<()> {
-    let mut interval = interval(Duration::from_millis(25));
+    const MICROS_PER_SEC: i64 = 1_000_000;
+
+    let mut interval = interval(Duration::from_micros(MICROS_PER_SEC.cast_unsigned() / 30));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let mut last_tick: i64 = 0;
+    let mut fade_tick: i64 = -1;
 
     let mut context = DrawContext::new()?;
 
@@ -169,13 +173,37 @@ async fn draw_worker() -> anyhow::Result<()> {
         interval.tick().await;
 
         let tick = Utc::now().timestamp();
-        if tick == last_tick {
+        let second = tick % 60;
+
+        {
+            let mut lock = WALLPAPER.write().await;
+
+            if fade_tick >= 0 {
+                fade_tick += 1;
+
+                if fade_tick == 30 {
+                    lock.pop_front();
+                } else if fade_tick == 60 {
+                    fade_tick = -1;
+                }
+            } else if second == 59 && lock.len() >= 2 {
+                fade_tick = 0;
+            }
+        }
+
+        let alpha = if fade_tick >= 0 {
+            Some(((30 - fade_tick).abs() * 255 / 30).clamp(0, 255) as u8)
+        } else {
+            None
+        };
+
+        if tick == last_tick && alpha.is_none() {
             continue;
         }
 
         last_tick = tick;
 
-        if let Err(e) = draw(&mut context).await {
+        if let Err(e) = draw(&mut context, alpha).await {
             error!("Failed to draw: {e:?}");
         }
     }
@@ -187,7 +215,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
             Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
             Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
             Update::Wallpaper(mut data) => {
-                block_in_place(|| {
+                let data = block_in_place(|| {
                     const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
 
                     // Draw rectangles
@@ -195,8 +223,12 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
                     fill_rect(&mut data.image, 1380, 50, 2510, 510, RECT_COLOR);
                     fill_rect(&mut data.image, 50, 1060, 1550, 1550, RECT_COLOR);
                     fill_rect(&mut data.image, 1600, 860, 2510, 1550, RECT_COLOR);
+
+                    data
                 });
-                *WALLPAPER.write().await = Some(data);
+
+                let mut lock = WALLPAPER.write().await;
+                lock.push_back(data);
             }
         }
     }
@@ -204,7 +236,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
     Ok(())
 }
 
-async fn draw(ctx: &mut DrawContext) -> anyhow::Result<()> {
+async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
     let wallpaper = &*WALLPAPER.read().await;
@@ -213,10 +245,14 @@ async fn draw(ctx: &mut DrawContext) -> anyhow::Result<()> {
 
     block_in_place(|| {
         // Draw wallpaper
-        if let Some(wallpaper) = wallpaper {
+        if let Some(wallpaper) = wallpaper.iter().next() {
             ctx.back_buffer.copy_from_slice(&wallpaper.image);
         } else {
             ctx.back_buffer.fill(0);
+        }
+
+        if let Some(alpha) = alpha {
+            darken(&mut ctx.back_buffer, alpha);
         }
 
         // Draw time and date
@@ -339,6 +375,58 @@ fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color
             pixel.blend(&Rgba(color.as_rgba()));
         }
     });
+}
+
+fn darken(dst: &mut AlignedImage, alpha: u8) {
+    unsafe {
+        // Set up alpha
+        let zero = _mm512_setzero_si512();
+        let alpha_mask = _mm512_set1_epi32(0xff00_0000_u32.cast_signed());
+
+        let alpha_8x16 = _mm512_set1_epi8(alpha.cast_signed());
+        let alpha_16x16 = (
+            _mm512_unpacklo_epi8(alpha_8x16, zero),
+            _mm512_unpackhi_epi8(alpha_8x16, zero),
+        );
+
+        let mut pdst: *mut __m512i = dst.as_mut_ptr().cast();
+
+        for _ in 0..(dst.len() / 64) {
+            // Load a 16-byte row from dst
+            let dst_8x16 = _mm512_load_si512(pdst);
+
+            // Unpack each channel to 16bit (lo, hi)
+            let dst_16x16 = (
+                _mm512_unpacklo_epi8(dst_8x16, zero),
+                _mm512_unpackhi_epi8(dst_8x16, zero),
+            );
+
+            // dst = (dst * a)
+            let dst_16x16 = (
+                _mm512_mullo_epi16(dst_16x16.0, alpha_16x16.0),
+                _mm512_mullo_epi16(dst_16x16.1, alpha_16x16.1),
+            );
+
+            // dst = (dst + (dst >> 8) + 1) >> 8
+            let dst_16x16 = (
+                _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
+                _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.0, 8)),
+            );
+            let dst_16x16 = (
+                _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
+                _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
+            );
+            let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
+
+            // Store the result
+            let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
+            let dst_8x16 = _mm512_or_si512(dst_8x16, alpha_mask);
+
+            _mm512_store_si512(pdst, dst_8x16);
+
+            pdst = pdst.add(1);
+        }
+    }
 }
 
 fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
