@@ -15,6 +15,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use az::SaturatingAs;
 use chrono::Local;
 use chrono::Utc;
 use compact_str::ToCompactString;
@@ -159,9 +160,9 @@ pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
 }
 
 async fn draw_worker() -> anyhow::Result<()> {
-    const MICROS_PER_SEC: i64 = 1_000_000;
+    const NANOS_PER_SEC: u64 = 1_000_000_000;
 
-    let mut interval = interval(Duration::from_micros(MICROS_PER_SEC.cast_unsigned() / 30));
+    let mut interval = interval(Duration::from_nanos(NANOS_PER_SEC / 30));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let mut last_tick: i64 = 0;
@@ -175,25 +176,20 @@ async fn draw_worker() -> anyhow::Result<()> {
         let tick = Utc::now().timestamp();
         let second = tick % 60;
 
-        {
-            let mut lock = WALLPAPER.write().await;
+        if fade_tick >= 0 {
+            fade_tick += 1;
 
-            if fade_tick >= 0 {
-                fade_tick += 1;
-
-                if fade_tick == 30 {
-                    lock.pop_front();
-                } else if fade_tick == 60 {
-                    fade_tick = -1;
-                }
-            } else if second == 59 && lock.len() >= 2 {
-                fade_tick = 0;
+            if fade_tick == 30 {
+                WALLPAPER.write().await.pop_front();
+            } else if fade_tick == 60 {
+                fade_tick = -1;
             }
+        } else if second == 59 && WALLPAPER.read().await.len() >= 2 {
+            fade_tick = 0;
         }
 
         let alpha = if fade_tick >= 0 {
-            #[allow(clippy::cast_sign_loss)]
-            Some(((30 - fade_tick).abs() * 255 / 30).clamp(0, 255) as u8)
+            Some(((30 - fade_tick).abs() * 255 / 30).saturating_as())
         } else {
             None
         };
@@ -216,17 +212,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
             Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
             Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
             Update::Wallpaper(mut data) => {
-                let data = block_in_place(|| {
-                    const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
-
-                    // Draw rectangles
-                    fill_rect(&mut data.image, 50, 50, 880, 750, RECT_COLOR);
-                    fill_rect(&mut data.image, 1380, 50, 2510, 510, RECT_COLOR);
-                    fill_rect(&mut data.image, 50, 1060, 1550, 1550, RECT_COLOR);
-                    fill_rect(&mut data.image, 1600, 860, 2510, 1550, RECT_COLOR);
-
-                    data
-                });
+                block_in_place(|| draw_frames(&mut data.image));
 
                 let mut lock = WALLPAPER.write().await;
                 lock.push_back(data);
@@ -237,25 +223,32 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
     Ok(())
 }
 
+fn draw_frames(dst: &mut AlignedImage) {
+    const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
+
+    fill_rect(dst, 50, 50, 880, 750, RECT_COLOR);
+    fill_rect(dst, 1380, 50, 2510, 510, RECT_COLOR);
+    fill_rect(dst, 50, 1060, 1550, 1550, RECT_COLOR);
+    fill_rect(dst, 1600, 860, 2510, 1550, RECT_COLOR);
+}
+
 async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
-    let wallpaper = &*WALLPAPER.read().await;
-    let switchbot = &*SWITCHBOT.read().await;
-    let openweather = &*OPENWEATHER.read().await;
-
-    block_in_place(|| {
-        // Draw wallpaper
-        if let Some(wallpaper) = wallpaper.front() {
+    // Draw wallpaper
+    if let Some(wallpaper) = WALLPAPER.read().await.front() {
+        block_in_place(|| {
             ctx.back_buffer.copy_from_slice(&wallpaper.image);
 
             if let Some(alpha) = alpha {
                 darken(&mut ctx.back_buffer, alpha);
             }
-        } else {
-            ctx.back_buffer.fill(0);
-        }
+        });
+    } else {
+        block_in_place(|| ctx.back_buffer.fill(0));
+    }
 
+    block_in_place(|| {
         // Draw time and date
         let datetime = Local::now();
         let lines = (
@@ -273,9 +266,11 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
         );
         draw_text(ctx, &lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
         draw_text(ctx, &lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
+    });
 
-        // Draw SwitchBot measurements
-        if let Some(data) = switchbot {
+    // Draw SwitchBot measurements
+    if let Some(data) = &*SWITCHBOT.read().await {
+        block_in_place(|| {
             let settings::Switchbot { devices, .. } = settings::switchbot();
 
             let lines = (
@@ -310,10 +305,12 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
             draw_text(ctx, "°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
             draw_text(ctx, &lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-        }
+        });
+    }
 
-        // Draw OpenWeather measurements
-        if let Some(data) = openweather {
+    // Draw OpenWeather measurements
+    if let Some(data) = &*OPENWEATHER.read().await {
+        block_in_place(|| {
             draw_image(&mut ctx.back_buffer, 1888, 920, &data.icon);
 
             let lines = (
@@ -323,9 +320,11 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
             draw_text(ctx, &lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
             draw_text(ctx, &lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
-        }
+        });
+    }
 
-        // Flip
+    // Flip
+    block_in_place(|| {
         let mut map = ctx.card.map_dumb_buffer(&mut ctx.dumb_buffer)?;
         map.copy_from_slice(&ctx.back_buffer);
 
@@ -433,10 +432,8 @@ fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color
 fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
     let r = r.min(dst.width());
     let t = t.min(dst.height());
-
-    if l >= r || t >= b {
-        return;
-    }
+    let (l, r) = (u32::min(l, r), u32::max(l, r));
+    let (t, b) = (u32::min(t, b), u32::max(t, b));
 
     unsafe {
         #[rustfmt::skip]
@@ -463,7 +460,7 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
         );
 
         for y in t..b {
-            let dst_offset = (y * dst.width() * 4 + l.div_ceil(16) * 64) as usize;
+            let dst_offset = (y * dst.stride() + l.div_ceil(16) * 64) as usize;
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
             for _ in l.div_ceil(16)..(r / 16) {
@@ -541,7 +538,7 @@ fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
         let mut psrc: *const __m512i = src.as_ptr().cast();
 
         for src_y in 0..src.height() {
-            let dst_offset = ((y + src_y) * dst.width() * 4 + x / 16 * 64) as usize;
+            let dst_offset = ((y + src_y) * dst.stride() + x / 16 * 64) as usize;
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
             for _ in 0..src.width() / 16 {

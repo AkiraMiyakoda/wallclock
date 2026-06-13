@@ -42,6 +42,11 @@ impl AlignedImage {
     }
 
     #[inline]
+    pub fn stride(&self) -> u32 {
+        self.width * 4
+    }
+
+    #[inline]
     pub fn get_pixel_mut(&mut self, x: u32, y: u32) -> &mut Rgba<u8> {
         let i = ((y * self.width + x) * 4) as usize;
         <Rgba<u8> as Pixel>::from_slice_mut(&mut self.data[i..(i + 4)])
