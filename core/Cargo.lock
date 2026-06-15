@@ -607,7 +607,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "format"
 version = "0.3.0"
-source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#b13e860f5abffaf755f37f57f58e2a91115914ec"
+source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#4cb67aa56ff549049c848b9f893520345e12c28c"
 dependencies = [
  "compact_str",
  "rust_decimal",
@@ -1299,7 +1299,7 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 [[package]]
 name = "logger"
 version = "0.4.0"
-source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#b13e860f5abffaf755f37f57f58e2a91115914ec"
+source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#4cb67aa56ff549049c848b9f893520345e12c28c"
 dependencies = [
  "anstyle",
  "chrono",
@@ -1840,7 +1840,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1897,7 +1897,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2731,7 +2731,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
