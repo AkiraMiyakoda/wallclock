@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "format"
 version = "0.3.0"
-source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#4cb67aa56ff549049c848b9f893520345e12c28c"
+source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#1ceeb08c17609af36f4307181516af4a3f11ffcf"
 dependencies = [
  "compact_str",
  "rust_decimal",
@@ -1299,7 +1299,7 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 [[package]]
 name = "logger"
 version = "0.4.0"
-source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#4cb67aa56ff549049c848b9f893520345e12c28c"
+source = "git+https://github.com/AkiraMiyakoda/rust-utils.git?branch=main#1ceeb08c17609af36f4307181516af4a3f11ffcf"
 dependencies = [
  "anstyle",
  "chrono",
