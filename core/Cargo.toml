@@ -28,7 +28,7 @@ image = {
     default-features = false,
     features = ["jpeg", "webp"]
 }
-itertools = "0.14.0"
+itertools = "0.15.0"
 log = "0.4.32"
 logger = {
     git = "https://github.com/AkiraMiyakoda/rust-utils.git",
