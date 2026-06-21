@@ -189,12 +189,12 @@ async fn draw_worker() -> anyhow::Result<()> {
         }
 
         let alpha = if fade_tick >= 0 {
-            Some(((30 - fade_tick).abs() * 255 / 30).saturating_as())
+            ((30 - fade_tick).abs() * 255 / 30).saturating_as()
         } else {
-            None
+            255
         };
 
-        if tick == last_tick && alpha.is_none() {
+        if tick == last_tick && alpha == 255 {
             continue;
         }
 
@@ -232,16 +232,16 @@ fn draw_frames(dst: &mut AlignedImage) {
     fill_rect(dst, 1600, 860, 2510, 1550, RECT_COLOR);
 }
 
-async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
+async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
     // Draw wallpaper
     if let Some(wallpaper) = WALLPAPER.read().await.front() {
         block_in_place(|| {
-            ctx.back_buffer.copy_from_slice(&wallpaper.image);
-
-            if let Some(alpha) = alpha {
-                darken(&mut ctx.back_buffer, alpha);
+            if alpha == 255 {
+                ctx.back_buffer.copy_from_slice(&wallpaper.image);
+            } else {
+                copy_image_with_alpha(&wallpaper.image, &mut ctx.back_buffer, alpha)
             }
         });
     } else {
@@ -334,7 +334,9 @@ async fn draw(ctx: &mut DrawContext, alpha: Option<u8>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn darken(dst: &mut AlignedImage, alpha: u8) {
+fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) {
+    debug_assert!(src.len() == dst.len());
+
     unsafe {
         // Set up alpha
         let zero = _mm512_setzero_si512();
@@ -346,22 +348,23 @@ fn darken(dst: &mut AlignedImage, alpha: u8) {
             _mm512_unpackhi_epi8(alpha_8x16, zero),
         );
 
+        let mut psrc: *const __m512i = src.as_ptr().cast();
         let mut pdst: *mut __m512i = dst.as_mut_ptr().cast();
 
-        for _ in 0..(dst.len() / 64) {
-            // Load a 16-byte row from dst
-            let dst_8x16 = _mm512_load_si512(pdst);
+        for _ in 0..(src.len() / 64) {
+            // Load a 16-byte row from src
+            let src_8x16 = _mm512_load_si512(psrc);
 
             // Unpack each channel to 16bit (lo, hi)
-            let dst_16x16 = (
-                _mm512_unpacklo_epi8(dst_8x16, zero),
-                _mm512_unpackhi_epi8(dst_8x16, zero),
+            let src_16x16 = (
+                _mm512_unpacklo_epi8(src_8x16, zero),
+                _mm512_unpackhi_epi8(src_8x16, zero),
             );
 
-            // dst = (dst * a)
+            // dst = (src * a)
             let dst_16x16 = (
-                _mm512_mullo_epi16(dst_16x16.0, alpha_16x16.0),
-                _mm512_mullo_epi16(dst_16x16.1, alpha_16x16.1),
+                _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
+                _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
             );
 
             // dst = (dst + (dst >> 8) + 1) >> 8
@@ -381,6 +384,7 @@ fn darken(dst: &mut AlignedImage, alpha: u8) {
 
             _mm512_store_si512(pdst, dst_8x16);
 
+            psrc = psrc.add(1);
             pdst = pdst.add(1);
         }
     }
