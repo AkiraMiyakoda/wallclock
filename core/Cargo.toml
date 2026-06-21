@@ -29,7 +29,7 @@ image = {
     features = ["jpeg", "webp"]
 }
 itertools = "0.15.0"
-log = "0.4.32"
+log = "0.4.33"
 logger = {
     git = "https://github.com/AkiraMiyakoda/rust-utils.git",
     branch = "main"
