@@ -64,7 +64,6 @@ impl AlignedImage {
 }
 
 impl From<DynamicImage> for AlignedImage {
-    #[allow(clippy::cast_ptr_alignment)]
     fn from(value: DynamicImage) -> Self {
         // Dynamic image to RGBA Bitmap
         let image = value.into_rgba8();

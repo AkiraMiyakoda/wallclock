@@ -241,7 +241,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             if alpha == 255 {
                 ctx.back_buffer.copy_from_slice(&wallpaper.image);
             } else {
-                copy_image_with_alpha(&wallpaper.image, &mut ctx.back_buffer, alpha)
+                copy_image_with_alpha(&wallpaper.image, &mut ctx.back_buffer, alpha);
             }
         });
     } else {
