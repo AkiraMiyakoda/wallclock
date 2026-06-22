@@ -69,22 +69,25 @@ impl From<DynamicImage> for AlignedImage {
         // Dynamic image to RGBA Bitmap
         let image = value.into_rgba8();
         let mut data = AVec::from_slice(CACHELINE_ALIGN, &image);
+        debug_assert!(data.len().is_multiple_of(64));
 
         // Convert from RGBA to BGRA
         unsafe {
             #[rustfmt::skip]
-            let shuffle_mask = _mm256_set_epi8(
+            let shuffle_mask = _mm512_set_epi8(
+                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
+                15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
                 15, 12, 13, 14, 11, 8, 9, 10, 7, 4, 5, 6, 3, 0, 1, 2,
             );
-            let mut ptr = data.as_mut_ptr();
+            let mut ptr: *mut __m512i = data.as_mut_ptr().cast();
 
-            for _ in 0..data.len() / 32 {
-                let row = _mm256_load_si256(ptr as *const __m256i);
-                let row = _mm256_shuffle_epi8(row, shuffle_mask);
-                _mm256_store_si256(ptr.cast::<__m256i>(), row);
+            for _ in 0..data.len() / 64 {
+                let row = _mm512_load_si512(ptr);
+                let row = _mm512_shuffle_epi8(row, shuffle_mask);
+                _mm512_store_si512(ptr, row);
 
-                ptr = ptr.add(32);
+                ptr = ptr.add(1);
             }
         }
 
