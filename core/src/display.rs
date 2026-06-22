@@ -352,7 +352,7 @@ fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) 
         let mut pdst: *mut __m512i = dst.as_mut_ptr().cast();
 
         for _ in 0..(src.len() / 64) {
-            // Load a 16-byte row from src
+            // Load a 16-pixel row from src
             let src_8x16 = _mm512_load_si512(psrc);
 
             // Unpack each channel to 16bit (lo, hi)
@@ -468,7 +468,7 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
             for _ in l.div_ceil(16)..(r / 16) {
-                // Load a 16-byte row from dst
+                // Load a 16-pixel row from dst
                 let dst_8x16 = _mm512_load_si512(pdst);
 
                 // Unpack each channel to 16bit (lo, hi)
@@ -546,7 +546,7 @@ fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
             for _ in 0..src.width() / 16 {
-                // Load a 16-byte row from src
+                // Load a 16-pixel row from src
                 let src_8x16 = _mm512_load_si512(psrc);
 
                 // Skip if all alpha values are zero
@@ -557,7 +557,7 @@ fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
                     continue;
                 }
 
-                // Load a 16-byte row from dst
+                // Load a 16-pixel row from dst
                 let dst_8x16 = _mm512_load_si512(pdst);
 
                 // Unpack each channel to 16bit (lo, hi)
