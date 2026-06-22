@@ -3,11 +3,8 @@ name = "wallclock-core"
 version = "0.1.0"
 edition = "2024"
 
-[workspace.lints.clippy]
-complexity = "warn"
-perf = "warn"
-style = "warn"
-suspicious = "deny"
+[lints.clippy]
+pedantic = "warn"
 
 [dependencies]
 aligned-vec = "0.6.4"
