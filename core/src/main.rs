@@ -28,27 +28,34 @@ enum Update {
     Wallpaper(WallpaperData),
 }
 
-struct Dimensions(u16, u16);
+#[derive(Debug, Clone, Copy)]
+struct Dimensions {
+    width: u16,
+    height: u16,
+}
 
 impl From<Dimensions> for (u32, u32) {
     fn from(val: Dimensions) -> Self {
-        (val.0.into(), val.1.into())
+        (val.width.into(), val.height.into())
     }
 }
 
 impl From<Dimensions> for (i32, i32) {
     fn from(val: Dimensions) -> Self {
-        (val.0.into(), val.1.into())
+        (val.width.into(), val.height.into())
     }
 }
 
 impl From<Dimensions> for (u16, u16) {
     fn from(val: Dimensions) -> Self {
-        (val.0, val.1)
+        (val.width, val.height)
     }
 }
 
-const SCREEN_DIMENSIONS: Dimensions = Dimensions(2560, 1600);
+const SCREEN_DIMENSIONS: Dimensions = Dimensions {
+    width: 2560,
+    height: 1600,
+};
 const CHANNEL_SIZE: usize = 8;
 
 #[global_allocator]
@@ -62,11 +69,11 @@ async fn main() -> anyhow::Result<()> {
 
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
-    // Exit the process when any of the workers exits.
+    // Exit the process when any worker exits, regardless of whether it succeeded or failed.
     select! {
-        result = switchbot::worker(&sender) => result,
-        result = openweather::worker(&sender) => result,
-        result = wallpaper::worker(&sender) => result,
+        result = switchbot::worker(sender.clone()) => result,
+        result = openweather::worker(sender.clone()) => result,
+        result = wallpaper::worker(sender) => result,
         result = display::worker(receiver) => result,
     }
 }

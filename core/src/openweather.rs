@@ -264,7 +264,7 @@ pub struct OpenWeatherData {
     pub pressure: i32,
 }
 
-pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
+pub async fn worker(sender: mpsc::Sender<Update>) -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
