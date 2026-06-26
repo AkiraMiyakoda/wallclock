@@ -40,7 +40,7 @@ pub struct OpenWeather {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Drm {
-    pub device: String,
+    pub device: CompactString,
 }
 
 impl Settings {

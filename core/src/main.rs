@@ -62,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
 
+    // Exit the process when any of the workers exits.
     select! {
         result = switchbot::worker(&sender) => result,
         result = openweather::worker(&sender) => result,
