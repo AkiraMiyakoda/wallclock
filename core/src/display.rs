@@ -17,6 +17,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use az::SaturatingAs;
 use chrono::Local;
+use chrono::Timelike;
 use chrono::Utc;
 use compact_str::ToCompactString;
 use compact_str::format_compact;
@@ -165,40 +166,39 @@ async fn draw_worker() -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_nanos(NANOS_PER_SEC / 30));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let mut last_tick: i64 = 0;
-    let mut fade_tick: i64 = -1;
+    let mut last_second: i64 = -1;
 
     let mut context = DrawContext::new()?;
 
     loop {
         interval.tick().await;
 
-        let tick = Utc::now().timestamp();
-        let second = tick % 60;
+        let now = Utc::now();
+        let second: i64 = now.second().into();
+        let sub_second: i64 = now.timestamp_subsec_millis().into();
 
-        if fade_tick >= 0 {
-            fade_tick += 1;
-
-            if fade_tick == 30 {
-                WALLPAPER.write().await.pop_front();
-            } else if fade_tick == 60 {
-                fade_tick = -1;
+        // Rotate the wallpaper queue right at the start of second 0
+        if second == 0 && second != last_second {
+            let mut lock = WALLPAPER.write().await;
+            if lock.len() >= 2 {
+                lock.pop_front();
             }
-        } else if second == 59 && WALLPAPER.read().await.len() >= 2 {
-            fade_tick = 0;
         }
 
-        let alpha = if fade_tick >= 0 {
-            ((30 - fade_tick).abs() * 255 / 30).saturating_as()
-        } else {
-            255
-        };
+        let mut alpha: u8 = 255;
 
-        if tick == last_tick && alpha == 255 {
+        if second == 0 {
+            // Fade-in phase
+            alpha = (sub_second * 255 / 1000).saturating_as();
+        } else if second == 59 {
+            // Fade-out phase
+            alpha = ((999 - sub_second) * 255 / 1000).saturating_as();
+        } else if second == last_second {
+            // Draw a frame once a second if not fading
             continue;
         }
 
-        last_tick = tick;
+        last_second = second;
 
         if let Err(e) = draw(&mut context, alpha).await {
             error!("Failed to draw: {e:?}");
@@ -212,10 +212,12 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
             Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
             Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
             Update::Wallpaper(mut data) => {
-                block_in_place(|| draw_frames(&mut data.image));
+                tokio::spawn(async move {
+                    block_in_place(|| draw_frames(&mut data.image));
 
-                let mut lock = WALLPAPER.write().await;
-                lock.push_back(data);
+                    let mut lock = WALLPAPER.write().await;
+                    lock.push_back(data);
+                });
             }
         }
     }
