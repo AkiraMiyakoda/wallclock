@@ -3,7 +3,6 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -58,7 +57,7 @@ pub(super) async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> 
     let mut interval = interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let mut last_tick: i64 = 0;
+    let mut last_tick: i64 = -1;
 
     loop {
         interval.tick().await;
@@ -71,51 +70,53 @@ pub(super) async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> 
         match inquire().await {
             Ok(data) => {
                 info!("Switchbot updated");
-
-                last_tick = tick;
                 sender.send(Update::SwitchBot(data)).await?;
             }
             Err(e) => {
                 error!("Failed to update SwitchBot data: {e:?}");
             }
         }
+
+        last_tick = tick;
     }
 }
 
 async fn inquire() -> anyhow::Result<SwitchBotData> {
-    const BASE_URL: &str = "https://api.switch-bot.com";
+    const BASE_URL: &str = "https://api.switch-bot.com/v1.1/";
 
     let settings::Switchbot { devices, token, secret } = settings::switchbot();
 
-    let inner_task = async |device_id: &str| {
-        let path = Path::new("/v1.1/devices").join(device_id).join("status");
+    let base_url = Url::parse(BASE_URL)?;
 
-        let url = Url::parse(BASE_URL)?;
-        let url = url.join(path.to_str().expect("Invalid path"))?;
-
-        let res = REST_CLIENT
-            .get(url)
-            .auth_headers(token, secret)
-            .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-            .send()
-            .await?;
-        let msg: Message = res.json().await?;
-        if msg.status_code != 100 {
-            bail!("Switchbot API error: {} {}", msg.status_code, msg.message);
-        }
-        let Some(Body::WoIOSensor(body)) = msg.body else {
-            bail!("Invalid message format");
-        };
-
-        anyhow::Ok(body)
-    };
     let (indoor, outdoor, tank) = try_join!(
-        inner_task(&devices.0.id),
-        inner_task(&devices.1.id),
-        inner_task(&devices.2.id)
+        fetch_device_status(base_url.clone(), &devices.0.id, token, secret),
+        fetch_device_status(base_url.clone(), &devices.1.id, token, secret),
+        fetch_device_status(base_url, &devices.2.id, token, secret),
     )?;
 
     Ok(SwitchBotData { indoor, outdoor, tank })
+}
+
+async fn fetch_device_status(base_url: Url, device_id: &str, token: &str, secret: &str) -> anyhow::Result<WoIOSensor> {
+    let url = base_url.join(&format!("devices/{device_id}/status"))?;
+
+    let res = REST_CLIENT
+        .get(url)
+        .auth_headers(token, secret)
+        .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+        .send()
+        .await?;
+
+    let msg: Message = res.json().await?;
+    if msg.status_code != 100 {
+        bail!("Switchbot API error: {} {}", msg.status_code, msg.message);
+    }
+
+    let Some(Body::WoIOSensor(body)) = msg.body else {
+        bail!("Invalid message format");
+    };
+
+    anyhow::Ok(body)
 }
 
 trait AuthHeaders {

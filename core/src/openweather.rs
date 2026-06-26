@@ -268,7 +268,7 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let mut last_tick: i64 = 0;
+    let mut last_tick: i64 = -1;
 
     loop {
         interval.tick().await;
@@ -281,14 +281,14 @@ pub async fn worker(sender: &mpsc::Sender<Update>) -> anyhow::Result<()> {
         match inquire().await {
             Ok(data) => {
                 info!("OpenWeather updated");
-
-                last_tick = tick;
                 sender.send(Update::OpenWeather(data)).await?;
             }
             Err(e) => {
                 error!("Failed to update OpenWeather: {e:?}");
             }
         }
+
+        last_tick = tick;
     }
 }
 
@@ -297,10 +297,12 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
 
     let settings::OpenWeather { lat, lon, api_key } = settings::openweather();
 
-    let params: [(&str, &str); _] = [
-        ("lat", &lat.to_compact_string()),
-        ("lon", &lon.to_compact_string()),
-        ("appid", api_key),
+    let lat = lat.to_compact_string();
+    let lon = lon.to_compact_string();
+    let params = [
+        ("lat", lat.as_str()),
+        ("lon", lon.as_str()),
+        ("appid", api_key.as_str()),
     ];
     let url = Url::parse_with_params(BASE_URL, params)?;
 
