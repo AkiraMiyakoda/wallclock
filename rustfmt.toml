@@ -1,4 +1,5 @@
-max_width = 119
+max_width = 120
+chain_width = 60
 hard_tabs = false
 tab_spaces = 4
 edition = "2024"

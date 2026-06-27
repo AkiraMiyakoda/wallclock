@@ -53,7 +53,7 @@ use tokio::time::interval;
 use crate::SCREEN_DIMENSIONS;
 use crate::Update;
 use crate::image::AlignedImage;
-use crate::openweather::OpenWeatherData;
+use crate::openweather;
 use crate::settings;
 use crate::switchbot::SwitchBotData;
 use crate::wallpaper::WallpaperData;
@@ -150,7 +150,6 @@ impl DrawContext {
 }
 
 static SWITCHBOT: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
-static OPENWEATHER: LazyLock<RwLock<Option<OpenWeatherData>>> = LazyLock::new(|| RwLock::new(None));
 static WALLPAPER: LazyLock<RwLock<VecDeque<WallpaperData>>> = LazyLock::new(|| RwLock::new(VecDeque::new()));
 
 pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
@@ -210,7 +209,7 @@ async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<(
     while let Some(update) = receiver.recv().await {
         match update {
             Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
-            Update::OpenWeather(data) => *OPENWEATHER.write().await = Some(data),
+            Update::OpenWeather(_data) => {}
             Update::Wallpaper(mut data) => {
                 tokio::spawn(async move {
                     block_in_place(|| draw_frames(&mut data.image));
@@ -311,7 +310,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     }
 
     // Draw OpenWeather measurements
-    if let Some(data) = &*OPENWEATHER.read().await {
+    if let Some(data) = openweather::get_latest().await {
         block_in_place(|| {
             draw_image(&mut ctx.back_buffer, 1888, 920, &data.icon);
 
