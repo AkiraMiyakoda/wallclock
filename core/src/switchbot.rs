@@ -3,6 +3,7 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -13,22 +14,19 @@ use log::error;
 use log::info;
 use reqwest::RequestBuilder;
 use reqwest::Url;
-use reqwest::header;
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
 use tokio::try_join;
 use uuid::Uuid;
 
 use crate::REST_CLIENT;
-use crate::Update;
 use crate::settings;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_field_names)]
-struct Message {
+struct SwitchBotResponse {
     status_code: i32,
     message: String,
     body: Option<Body>,
@@ -43,7 +41,7 @@ enum Body {
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct WoIOSensor {
     pub temperature: f32,
-    pub humidity: i32,
+    pub humidity: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,7 +51,13 @@ pub struct SwitchBotData {
     pub tank: WoIOSensor,
 }
 
-pub(super) async fn worker(sender: mpsc::Sender<Update>) -> anyhow::Result<()> {
+static LATEST_DATA: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
+
+pub async fn get_latest() -> Option<SwitchBotData> {
+    *LATEST_DATA.read().await
+}
+
+pub async fn worker() -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -62,6 +66,7 @@ pub(super) async fn worker(sender: mpsc::Sender<Update>) -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
+        // Run about 10 seconds after each 3-minute boundary to stagger this worker.
         let tick = (Utc::now().timestamp() - 10) / TimeDelta::minutes(3).num_seconds();
         if tick == last_tick {
             continue;
@@ -69,8 +74,9 @@ pub(super) async fn worker(sender: mpsc::Sender<Update>) -> anyhow::Result<()> {
 
         match inquire().await {
             Ok(data) => {
-                info!("Switchbot updated");
-                sender.send(Update::SwitchBot(data)).await?;
+                *LATEST_DATA.write().await = Some(data);
+
+                info!("SwitchBot updated");
             }
             Err(e) => {
                 error!("Failed to update SwitchBot data: {e:?}");
@@ -88,35 +94,37 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
 
     let base_url = Url::parse(BASE_URL)?;
 
+    let inner_task = async |device_id: &str| {
+        let url = base_url.join(&format!("devices/{device_id}/status"))?;
+        let response: SwitchBotResponse = REST_CLIENT
+            .get(url)
+            .auth_headers(token, secret)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        if response.status_code != 100 {
+            bail!(
+                "SwitchBot API error for device {device_id}: {} {}",
+                response.status_code,
+                response.message
+            );
+        }
+        let Some(Body::WoIOSensor(body)) = response.body else {
+            bail!("SwitchBot API did not return WoIOSensor data for device {device_id}");
+        };
+
+        anyhow::Ok(body)
+    };
+
     let (indoor, outdoor, tank) = try_join!(
-        fetch_device_status(base_url.clone(), &devices.indoor.id, token, secret),
-        fetch_device_status(base_url.clone(), &devices.outdoor.id, token, secret),
-        fetch_device_status(base_url, &devices.tank.id, token, secret),
+        inner_task(&devices.indoor.id),
+        inner_task(&devices.outdoor.id),
+        inner_task(&devices.tank.id),
     )?;
 
     Ok(SwitchBotData { indoor, outdoor, tank })
-}
-
-async fn fetch_device_status(base_url: Url, device_id: &str, token: &str, secret: &str) -> anyhow::Result<WoIOSensor> {
-    let url = base_url.join(&format!("devices/{device_id}/status"))?;
-
-    let res = REST_CLIENT
-        .get(url)
-        .auth_headers(token, secret)
-        .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-        .send()
-        .await?;
-
-    let msg: Message = res.json().await?;
-    if msg.status_code != 100 {
-        bail!("Switchbot API error: {} {}", msg.status_code, msg.message);
-    }
-
-    let Some(Body::WoIOSensor(body)) = msg.body else {
-        bail!("Invalid message format");
-    };
-
-    anyhow::Ok(body)
 }
 
 trait AuthHeaders {

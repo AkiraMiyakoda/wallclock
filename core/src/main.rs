@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Exit the process when any worker exits, regardless of whether it succeeded or failed.
     select! {
-        result = switchbot::worker(sender.clone()) => result,
+        result = switchbot::worker() => result,
         result = openweather::worker() => result,
         result = wallpaper::worker(sender) => result,
         result = display::worker(receiver) => result,

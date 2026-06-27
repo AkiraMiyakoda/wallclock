@@ -55,7 +55,7 @@ use crate::Update;
 use crate::image::AlignedImage;
 use crate::openweather;
 use crate::settings;
-use crate::switchbot::SwitchBotData;
+use crate::switchbot;
 use crate::wallpaper::WallpaperData;
 
 #[derive(Debug)]
@@ -149,7 +149,6 @@ impl DrawContext {
     }
 }
 
-static SWITCHBOT: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
 static WALLPAPER: LazyLock<RwLock<VecDeque<WallpaperData>>> = LazyLock::new(|| RwLock::new(VecDeque::new()));
 
 pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
@@ -208,7 +207,7 @@ async fn draw_worker() -> anyhow::Result<()> {
 async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
     while let Some(update) = receiver.recv().await {
         match update {
-            Update::SwitchBot(data) => *SWITCHBOT.write().await = Some(data),
+            Update::SwitchBot(_data) => {}
             Update::OpenWeather(_data) => {}
             Update::Wallpaper(mut data) => {
                 tokio::spawn(async move {
@@ -276,7 +275,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     });
 
     // Draw SwitchBot measurements
-    if let Some(data) = &*SWITCHBOT.read().await {
+    if let Some(data) = switchbot::get_latest().await {
         block_in_place(|| {
             let settings::SwitchBot { devices, .. } = settings::switchbot();
 
