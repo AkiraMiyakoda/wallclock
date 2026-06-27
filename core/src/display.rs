@@ -38,6 +38,8 @@ use drm::control::dumbbuffer::DumbBuffer;
 use drm::control::framebuffer;
 use format::WithCommas;
 use image::Pixel;
+// `Rgba<u8>` is used only as a convenient 4-byte pixel container.
+// The bytes are interpreted as BGRA/XRGB when copied to the DRM framebuffer.
 use image::Rgba;
 use log::error;
 use num_traits::ToPrimitive;
@@ -83,6 +85,7 @@ struct DrawContext {
     back_buffer: AlignedImage,
     font_system: FontSystem,
     swash_cache: SwashCache,
+    text_buffer: Buffer,
 }
 
 impl Drop for DrawContext {
@@ -98,7 +101,7 @@ impl DrawContext {
         let settings::Drm { device } = settings::drm();
         let card = Card(OpenOptions::new().read(true).write(true).open(device)?);
 
-        // Get DRM related resouces
+        // Get DRM related resources
         let resources = card.resource_handles()?;
         let connector = resources
             .connectors()
@@ -115,12 +118,22 @@ impl DrawContext {
             .crtcs()
             .iter()
             .flat_map(|crtc| card.get_crtc(*crtc))
-            .next()
+            .find(|crtc| {
+                crtc.mode()
+                    .is_some_and(|mode| mode.size() == SCREEN_DIMENSIONS.into())
+            })
+            .or_else(|| {
+                resources
+                    .crtcs()
+                    .iter()
+                    .flat_map(|crtc| card.get_crtc(*crtc))
+                    .next()
+            })
             .ok_or(anyhow!("CRTC not found"))?;
 
         // Create frame buffer
         let dumb_buffer = card.create_dumb_buffer(SCREEN_DIMENSIONS.into(), DrmFourcc::Xrgb8888, 32)?;
-        let frame_buffer = card.add_framebuffer(&dumb_buffer, 32, 32).unwrap();
+        let frame_buffer = card.add_framebuffer(&dumb_buffer, 32, 32)?;
 
         card.set_crtc(
             crtc.handle(),
@@ -131,14 +144,18 @@ impl DrawContext {
         )?;
 
         let fonts = [Source::Binary(Arc::new(include_bytes!("../fonts/Lato-Bold.ttf")))];
+        let mut font_system = FontSystem::new_with_fonts(fonts);
+        let text_buffer = Buffer::new(&mut font_system, Metrics::new(16.0, 16.0 * 1.2));
+
         let (screen_width, screen_height) = SCREEN_DIMENSIONS.into();
         Ok(Self {
             card,
             dumb_buffer,
             frame_buffer,
             back_buffer: AlignedImage::new(screen_width, screen_height),
-            font_system: FontSystem::new_with_fonts(fonts),
+            font_system,
             swash_cache: SwashCache::new(),
+            text_buffer,
         })
     }
 }
@@ -149,38 +166,40 @@ pub async fn worker() -> anyhow::Result<()> {
     let mut interval = interval(Duration::from_nanos(NANOS_PER_SEC / 30));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-    let mut last_second: i64 = -1;
-
+    let mut last_second: Option<u32> = None;
     let mut context = DrawContext::new()?;
 
     loop {
         interval.tick().await;
 
         let now = Utc::now();
-        let second: i64 = now.second().into();
+        let minute = now.minute();
+        let second = now.second();
         let sub_second: i64 = now.timestamp_subsec_millis().into();
 
-        // Rotate the wallpaper queue right at the start of second 0
-        let wallpaper_changed = if second == 0 && second != last_second {
-            wallpaper::move_next().await
-        } else {
-            false
-        };
+        #[allow(clippy::manual_is_multiple_of)]
+        let cycle_start = minute % 5 == 0 && second == 0;
+        let cycle_end = minute % 5 == 4 && second == 59;
+
+        // Advance the wallpaper once at the start of each 5-minute cycle.
+        if cycle_start && Some(second) != last_second {
+            wallpaper::move_next().await;
+        }
 
         let mut alpha: u8 = 255;
 
-        if wallpaper_changed && second == 0 {
-            // Fade-in phase
+        if cycle_start {
+            // Fade in after each 5-minute cycle.
             alpha = (sub_second * 255 / 1000).saturating_as();
-        } else if wallpaper_changed && second == 59 {
-            // Fade-out phase
-            alpha = ((999 - sub_second) * 255 / 1000).saturating_as();
-        } else if second == last_second {
-            // Draw a frame once a second if not fading
+        } else if cycle_end {
+            // Fade out before each 5-minute cycle. If no next wallpaper is ready, the same one fades back in.
+            alpha = 255 - (sub_second * 255 / 1000).saturating_as::<u8>();
+        } else if Some(second) == last_second {
+            // Draw a frame once a second if not fading.
             continue;
         }
 
-        last_second = second;
+        last_second = Some(second);
 
         if let Err(e) = draw(&mut context, alpha).await {
             error!("Failed to draw: {e:?}");
@@ -189,31 +208,31 @@ pub async fn worker() -> anyhow::Result<()> {
 }
 
 async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
+    const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
-    // Draw wallpaper
-    if let Some(wallpaper) = wallpaper::get_current().await {
-        block_in_place(|| {
+    let wallpaper = wallpaper::get_current().await;
+    let switchbot = switchbot::get_latest().await;
+    let openweather = openweather::get_latest().await;
+
+    block_in_place(|| {
+        // Draw wallpaper
+        if let Some(wallpaper) = wallpaper {
             if alpha == 255 {
                 ctx.back_buffer.copy_from_slice(&wallpaper.image);
             } else {
                 copy_image_with_alpha(&wallpaper.image, &mut ctx.back_buffer, alpha);
             }
-        });
-    } else {
-        block_in_place(|| ctx.back_buffer.fill(0));
-    }
+        } else {
+            ctx.back_buffer.fill(0);
+        }
 
-    block_in_place(|| {
-        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
-
+        // Draw background frames
         fill_rect(&mut ctx.back_buffer, 50, 50, 880, 750, RECT_COLOR);
         fill_rect(&mut ctx.back_buffer, 1380, 50, 2510, 510, RECT_COLOR);
         fill_rect(&mut ctx.back_buffer, 50, 1060, 1550, 1550, RECT_COLOR);
         fill_rect(&mut ctx.back_buffer, 1600, 860, 2510, 1550, RECT_COLOR);
-    });
 
-    block_in_place(|| {
         // Draw time and date
         let datetime = Local::now();
         let lines = (
@@ -237,17 +256,15 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
         );
         draw_text(ctx, &lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
         draw_text(ctx, &lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
-    });
 
-    // Draw SwitchBot measurements
-    if let Some(data) = switchbot::get_latest().await {
-        block_in_place(|| {
+        // Draw SwitchBot measurements
+        if let Some(data) = switchbot {
             let settings::SwitchBot { devices, .. } = settings::switchbot();
 
             let lines = (
                 devices.indoor.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.indoor.temperature),
-                format_compact!("{:}", data.indoor.humidity),
+                format_compact!("{:.0}", data.indoor.humidity),
             );
             draw_text(ctx, &lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
             draw_text(ctx, &lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
@@ -258,7 +275,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             let lines = (
                 devices.outdoor.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.outdoor.temperature),
-                format_compact!("{:}", data.outdoor.humidity),
+                format_compact!("{:.0}", data.outdoor.humidity),
             );
             draw_text(ctx, &lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
             draw_text(ctx, &lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
@@ -269,19 +286,17 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             let lines = (
                 devices.tank.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.tank.temperature),
-                format_compact!("{:}", data.tank.humidity),
+                format_compact!("{:.0}", data.tank.humidity),
             );
             draw_text(ctx, &lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
             draw_text(ctx, &lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
             draw_text(ctx, &lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-        });
-    }
+        }
 
-    // Draw OpenWeather measurements
-    if let Some(data) = openweather::get_latest().await {
-        block_in_place(|| {
+        // Draw OpenWeather measurements
+        if let Some(data) = openweather {
             draw_image(&mut ctx.back_buffer, 1888, 920, &data.icon);
 
             let lines = (
@@ -290,12 +305,9 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             );
             draw_text(ctx, &lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
             draw_text(ctx, &lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
-            draw_text(ctx, "hPA", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
-        });
-    }
+            draw_text(ctx, "hPa", 2130, 1495, 75.0, TEXT_COLOR, TextAnchor::BottomLeft);
+        }
 
-    // Flip
-    block_in_place(|| {
         let mut map = ctx.card.map_dumb_buffer(&mut ctx.dumb_buffer)?;
         map.copy_from_slice(&ctx.back_buffer);
 
@@ -306,7 +318,10 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
 }
 
 fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) {
-    debug_assert!(src.len() == dst.len());
+    assert_eq!(src.len(), dst.len());
+    assert!(src.len().is_multiple_of(64));
+    assert!(src.as_ptr().addr().is_multiple_of(64));
+    assert!(dst.as_ptr().addr().is_multiple_of(64));
 
     unsafe {
         // Set up alpha
@@ -341,7 +356,7 @@ fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) 
             // dst = (dst + (dst >> 8) + 1) >> 8
             let dst_16x16 = (
                 _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
-                _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.0, 8)),
+                _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
             );
             let dst_16x16 = (
                 _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
@@ -362,9 +377,8 @@ fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) 
 }
 
 fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color: Color, anchor: TextAnchor) {
-    let metrics = Metrics::new(size, size * 1.2);
-    let mut buffer = Buffer::new(&mut ctx.font_system, metrics);
-    let mut buffer = buffer.borrow_with(&mut ctx.font_system);
+    let mut buffer = ctx.text_buffer.borrow_with(&mut ctx.font_system);
+    buffer.set_metrics(Metrics::new(size, size * 1.2));
 
     let attrs = Attrs::new()
         .family(Family::Name("Lato"))
@@ -407,10 +421,23 @@ fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color
 }
 
 fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
+    let (l, r) = (l.min(r), l.max(r));
+    let (t, b) = (t.min(b), t.max(b));
+
+    let l = l.min(dst.width());
     let r = r.min(dst.width());
     let t = t.min(dst.height());
-    let (l, r) = (u32::min(l, r), u32::max(l, r));
-    let (t, b) = (u32::min(t, b), u32::max(t, b));
+    let b = b.min(dst.height());
+
+    if l == r || t == b {
+        return;
+    }
+
+    let simd_l = l.div_ceil(16) * 16;
+    let simd_r = r / 16 * 16;
+
+    let left_end = simd_l.min(r);
+    let right_start = simd_r.max(left_end);
 
     unsafe {
         #[rustfmt::skip]
@@ -437,10 +464,10 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
         );
 
         for y in t..b {
-            let dst_offset = (y * dst.stride() + l.div_ceil(16) * 64) as usize;
+            let dst_offset = (y * dst.stride() + simd_l * 4) as usize;
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
-            for _ in l.div_ceil(16)..(r / 16) {
+            for _ in (simd_l / 16)..(simd_r / 16) {
                 // Load a 16-pixel row from dst
                 let dst_8x16 = _mm512_load_si512(pdst);
 
@@ -487,11 +514,11 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
     }
 
     for y in t..b {
-        for x in l..(l.div_ceil(16) * 16) {
+        for x in l..left_end {
             dst.get_pixel_mut(x, y).blend(&color);
         }
 
-        for x in (r / 16 * 16)..r {
+        for x in right_start..r {
             dst.get_pixel_mut(x, y).blend(&color);
         }
     }
@@ -500,6 +527,13 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
 fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
     assert!(x.is_multiple_of(16));
     assert!(src.width().is_multiple_of(16));
+    assert!(src.as_ptr().addr().is_multiple_of(64));
+    assert!(dst.as_ptr().addr().is_multiple_of(64));
+    assert!(x.checked_add(src.width()).is_some_and(|r| r <= dst.width()));
+    assert!(
+        y.checked_add(src.height())
+            .is_some_and(|b| b <= dst.height())
+    );
 
     unsafe {
         #[rustfmt::skip]
