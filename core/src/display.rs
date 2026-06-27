@@ -262,8 +262,14 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
         draw_text(ctx, &lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
         let lines = (
-            datetime.format("%b %e, %Y").to_compact_string().to_ascii_uppercase(),
-            datetime.format("%a").to_compact_string().to_ascii_uppercase(),
+            datetime
+                .format("%b %e, %Y")
+                .to_compact_string()
+                .to_ascii_uppercase(),
+            datetime
+                .format("%a")
+                .to_compact_string()
+                .to_ascii_uppercase(),
         );
         draw_text(ctx, &lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
         draw_text(ctx, &lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
@@ -272,10 +278,10 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     // Draw SwitchBot measurements
     if let Some(data) = &*SWITCHBOT.read().await {
         block_in_place(|| {
-            let settings::Switchbot { devices, .. } = settings::switchbot();
+            let settings::SwitchBot { devices, .. } = settings::switchbot();
 
             let lines = (
-                devices.0.name.to_ascii_uppercase(),
+                devices.indoor.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.indoor.temperature),
                 format_compact!("{:}", data.indoor.humidity),
             );
@@ -286,7 +292,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             draw_text(ctx, "%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                devices.1.name.to_ascii_uppercase(),
+                devices.outdoor.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.outdoor.temperature),
                 format_compact!("{:}", data.outdoor.humidity),
             );
@@ -297,7 +303,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             draw_text(ctx, "%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                devices.2.name.to_ascii_uppercase(),
+                devices.tank.label.to_ascii_uppercase(),
                 format_compact!("{:.1}", data.tank.temperature),
                 format_compact!("{:}", data.tank.humidity),
             );
@@ -396,7 +402,9 @@ fn draw_text(ctx: &mut DrawContext, text: &str, x: u32, y: u32, size: f32, color
     let mut buffer = Buffer::new(&mut ctx.font_system, metrics);
     let mut buffer = buffer.borrow_with(&mut ctx.font_system);
 
-    let attrs = Attrs::new().family(Family::Name("Lato")).weight(Weight::BOLD);
+    let attrs = Attrs::new()
+        .family(Family::Name("Lato"))
+        .weight(Weight::BOLD);
     buffer.set_text(text, &attrs, Shaping::Advanced, Some(Align::Left));
 
     let width = buffer

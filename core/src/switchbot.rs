@@ -84,14 +84,14 @@ pub(super) async fn worker(sender: mpsc::Sender<Update>) -> anyhow::Result<()> {
 async fn inquire() -> anyhow::Result<SwitchBotData> {
     const BASE_URL: &str = "https://api.switch-bot.com/v1.1/";
 
-    let settings::Switchbot { devices, token, secret } = settings::switchbot();
+    let settings::SwitchBot { devices, token, secret } = settings::switchbot();
 
     let base_url = Url::parse(BASE_URL)?;
 
     let (indoor, outdoor, tank) = try_join!(
-        fetch_device_status(base_url.clone(), &devices.0.id, token, secret),
-        fetch_device_status(base_url.clone(), &devices.1.id, token, secret),
-        fetch_device_status(base_url, &devices.2.id, token, secret),
+        fetch_device_status(base_url.clone(), &devices.indoor.id, token, secret),
+        fetch_device_status(base_url.clone(), &devices.outdoor.id, token, secret),
+        fetch_device_status(base_url, &devices.tank.id, token, secret),
     )?;
 
     Ok(SwitchBotData { indoor, outdoor, tank })
