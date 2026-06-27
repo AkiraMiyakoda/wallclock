@@ -3,9 +3,6 @@ name = "wallclock-core"
 version = "0.1.0"
 edition = "2024"
 
-[lints.clippy]
-pedantic = "warn"
-
 [dependencies]
 aligned-vec = "0.6.4"
 anyhow = "1.0.102"
@@ -42,6 +39,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"
 uuid = { version = "1.23.3", features = ["v4"] }
+
+[lints.clippy]
+pedantic = "warn"
 
 [profile.dev.package."*"]
 opt-level = 3
