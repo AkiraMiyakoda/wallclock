@@ -5,13 +5,11 @@
 
 #[allow(clippy::wildcard_imports)]
 use std::arch::x86_64::*;
-use std::collections::VecDeque;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -43,20 +41,16 @@ use image::Pixel;
 use image::Rgba;
 use log::error;
 use num_traits::ToPrimitive;
-use tokio::select;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc;
 use tokio::task::block_in_place;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
 
 use crate::SCREEN_DIMENSIONS;
-use crate::Update;
 use crate::image::AlignedImage;
 use crate::openweather;
 use crate::settings;
 use crate::switchbot;
-use crate::wallpaper::WallpaperData;
+use crate::wallpaper;
 
 #[derive(Debug)]
 struct Card(File);
@@ -149,16 +143,7 @@ impl DrawContext {
     }
 }
 
-static WALLPAPER: LazyLock<RwLock<VecDeque<WallpaperData>>> = LazyLock::new(|| RwLock::new(VecDeque::new()));
-
-pub async fn worker(receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
-    select! {
-        result = draw_worker() => result,
-        result = update_worker(receiver) => result,
-    }
-}
-
-async fn draw_worker() -> anyhow::Result<()> {
+pub async fn worker() -> anyhow::Result<()> {
     const NANOS_PER_SEC: u64 = 1_000_000_000;
 
     let mut interval = interval(Duration::from_nanos(NANOS_PER_SEC / 30));
@@ -176,19 +161,18 @@ async fn draw_worker() -> anyhow::Result<()> {
         let sub_second: i64 = now.timestamp_subsec_millis().into();
 
         // Rotate the wallpaper queue right at the start of second 0
-        if second == 0 && second != last_second {
-            let mut lock = WALLPAPER.write().await;
-            if lock.len() >= 2 {
-                lock.pop_front();
-            }
-        }
+        let wallpaper_changed = if second == 0 && second != last_second {
+            wallpaper::move_next().await
+        } else {
+            false
+        };
 
         let mut alpha: u8 = 255;
 
-        if second == 0 {
+        if wallpaper_changed && second == 0 {
             // Fade-in phase
             alpha = (sub_second * 255 / 1000).saturating_as();
-        } else if second == 59 {
+        } else if wallpaper_changed && second == 59 {
             // Fade-out phase
             alpha = ((999 - sub_second) * 255 / 1000).saturating_as();
         } else if second == last_second {
@@ -204,39 +188,11 @@ async fn draw_worker() -> anyhow::Result<()> {
     }
 }
 
-async fn update_worker(mut receiver: mpsc::Receiver<Update>) -> anyhow::Result<()> {
-    while let Some(update) = receiver.recv().await {
-        match update {
-            Update::SwitchBot(_data) => {}
-            Update::OpenWeather(_data) => {}
-            Update::Wallpaper(mut data) => {
-                tokio::spawn(async move {
-                    block_in_place(|| draw_frames(&mut data.image));
-
-                    let mut lock = WALLPAPER.write().await;
-                    lock.push_back(data);
-                });
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn draw_frames(dst: &mut AlignedImage) {
-    const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
-
-    fill_rect(dst, 50, 50, 880, 750, RECT_COLOR);
-    fill_rect(dst, 1380, 50, 2510, 510, RECT_COLOR);
-    fill_rect(dst, 50, 1060, 1550, 1550, RECT_COLOR);
-    fill_rect(dst, 1600, 860, 2510, 1550, RECT_COLOR);
-}
-
 async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
     // Draw wallpaper
-    if let Some(wallpaper) = WALLPAPER.read().await.front() {
+    if let Some(wallpaper) = wallpaper::get_current().await {
         block_in_place(|| {
             if alpha == 255 {
                 ctx.back_buffer.copy_from_slice(&wallpaper.image);
@@ -247,6 +203,15 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     } else {
         block_in_place(|| ctx.back_buffer.fill(0));
     }
+
+    block_in_place(|| {
+        const RECT_COLOR: Rgba<u8> = Rgba([0, 0, 0, 180]);
+
+        fill_rect(&mut ctx.back_buffer, 50, 50, 880, 750, RECT_COLOR);
+        fill_rect(&mut ctx.back_buffer, 1380, 50, 2510, 510, RECT_COLOR);
+        fill_rect(&mut ctx.back_buffer, 50, 1060, 1550, 1550, RECT_COLOR);
+        fill_rect(&mut ctx.back_buffer, 1600, 860, 2510, 1550, RECT_COLOR);
+    });
 
     block_in_place(|| {
         // Draw time and date

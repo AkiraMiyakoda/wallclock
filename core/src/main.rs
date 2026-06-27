@@ -8,11 +8,6 @@ use std::sync::LazyLock;
 use mimalloc::MiMalloc;
 use reqwest::Client;
 use tokio::select;
-use tokio::sync::mpsc;
-
-use crate::openweather::OpenWeatherData;
-use crate::switchbot::SwitchBotData;
-use crate::wallpaper::WallpaperData;
 
 mod display;
 mod image;
@@ -20,13 +15,6 @@ mod openweather;
 mod settings;
 mod switchbot;
 mod wallpaper;
-
-#[derive(Debug)]
-enum Update {
-    SwitchBot(SwitchBotData),
-    OpenWeather(OpenWeatherData),
-    Wallpaper(WallpaperData),
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Dimensions {
@@ -56,7 +44,6 @@ const SCREEN_DIMENSIONS: Dimensions = Dimensions {
     width: 2560,
     height: 1600,
 };
-const CHANNEL_SIZE: usize = 8;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -67,13 +54,11 @@ static REST_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 async fn main() -> anyhow::Result<()> {
     logger::init();
 
-    let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
-
     // Exit the process when any worker exits, regardless of whether it succeeded or failed.
     select! {
         result = switchbot::worker() => result,
         result = openweather::worker() => result,
-        result = wallpaper::worker(sender) => result,
-        result = display::worker(receiver) => result,
+        result = wallpaper::worker() => result,
+        result = display::worker() => result,
     }
 }
