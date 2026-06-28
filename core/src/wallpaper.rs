@@ -70,7 +70,8 @@ pub async fn worker() -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        // Run about 10 seconds before each 5-minute boundary to stagger this worker.
+        // Run about 10 seconds before each 5-minute boundary,
+        // so this worker does not run at the same time as the others.
         let tick = (Utc::now().timestamp() + 10) / TimeDelta::minutes(5).num_seconds();
         if tick == last_tick {
             continue;
@@ -79,6 +80,7 @@ pub async fn worker() -> anyhow::Result<()> {
         {
             let queue = DATA_QUEUE.read().await;
             if queue.len() >= MAX_QUEUE_SIZE {
+                last_tick = tick;
                 continue;
             }
         }
@@ -97,6 +99,7 @@ pub async fn worker() -> anyhow::Result<()> {
             }
         }
 
+        // Update this even on failure to avoid retrying every second.
         last_tick = tick;
     }
 }
@@ -128,6 +131,8 @@ async fn inquire() -> anyhow::Result<WallpaperData> {
     let url = {
         let mut queue = URL_QUEUE.write().await;
 
+        // Use the new URL list only when the queue is empty.
+        // This keeps the current rotation stable while still refreshing the list often.
         if queue.is_empty() {
             *queue = urls;
         }

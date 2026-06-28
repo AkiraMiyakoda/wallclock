@@ -18,34 +18,34 @@ struct Settings {
     drm: Drm,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct SwitchBot {
     pub token: String,
     pub secret: String,
     pub devices: SwitchBotDevices,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct SwitchBotDevices {
     pub indoor: SwitchBotDevice,
     pub outdoor: SwitchBotDevice,
     pub tank: SwitchBotDevice,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct SwitchBotDevice {
     pub id: CompactString,
     pub label: CompactString,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct OpenWeather {
     pub lat: f32,
     pub lon: f32,
     pub api_key: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Drm {
     pub device: CompactString,
 }
@@ -55,18 +55,16 @@ impl Settings {
         const PATH_ENV: &str = "CONFIG_PATH";
         const DEFAULT_PATH: &str = "/run/secrets/settings.toml";
 
+        // CONFIG_PATH can override the default secret-mounted settings file.
         let path = env::var(PATH_ENV).unwrap_or_else(|_| DEFAULT_PATH.to_owned());
-        let toml = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read settings file: {path}"))?;
-        let settings = toml::from_str(&toml)
-            .with_context(|| format!("Failed to parse settings file: {path}"))?;
+        let toml = fs::read_to_string(&path).with_context(|| format!("Failed to read settings file: {path}"))?;
+        let settings = toml::from_str(&toml).with_context(|| format!("Failed to parse settings file: {path}"))?;
 
         Ok(settings)
     }
 }
 
-static INSTANCE: LazyLock<Settings> =
-    LazyLock::new(|| Settings::load().expect("Failed to load settings"));
+static INSTANCE: LazyLock<Settings> = LazyLock::new(|| Settings::load().expect("Failed to load settings"));
 
 pub fn switchbot() -> &'static SwitchBot {
     &INSTANCE.switchbot

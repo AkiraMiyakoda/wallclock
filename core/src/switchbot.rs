@@ -66,7 +66,8 @@ pub async fn worker() -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        // Run about 10 seconds after each 3-minute boundary to stagger this worker.
+        // Run about 10 seconds after each 3-minute boundary,
+        // so this worker does not run at the same time as the others.
         let tick = (Utc::now().timestamp() - 10) / TimeDelta::minutes(3).num_seconds();
         if tick == last_tick {
             continue;
@@ -83,6 +84,7 @@ pub async fn worker() -> anyhow::Result<()> {
             }
         }
 
+        // Update this even on failure to avoid retrying every second.
         last_tick = tick;
     }
 }

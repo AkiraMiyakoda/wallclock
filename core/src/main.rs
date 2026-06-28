@@ -54,7 +54,8 @@ static REST_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 async fn main() -> anyhow::Result<()> {
     logger::init();
 
-    // Exit when any worker returns, whether it succeeded or failed.
+    // Stop the whole program if any worker finishes or fails.
+    // Each worker is expected to run until it returns an error or is shut down.
     select! {
         result = switchbot::worker() => result,
         result = openweather::worker() => result,

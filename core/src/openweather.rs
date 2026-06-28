@@ -290,7 +290,8 @@ pub async fn worker() -> anyhow::Result<()> {
     loop {
         interval.tick().await;
 
-        // Run about 20 seconds after each 10-minute boundary to stagger this worker.
+        // Run about 20 seconds after each 10-minute boundary,
+        // so this worker does not run at the same time as the others.
         let tick = (Utc::now().timestamp() - 20) / TimeDelta::minutes(10).num_seconds();
         if tick == last_tick {
             continue;
@@ -308,6 +309,7 @@ pub async fn worker() -> anyhow::Result<()> {
             }
         }
 
+        // Update this even on failure to avoid retrying every second.
         last_tick = tick;
     }
 }
@@ -335,11 +337,14 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
         .json()
         .await?;
     let Some(weather) = response.weather.into_iter().next() else {
-        bail!("Bad message format (weather is empty)");
+        bail!("OpenWeather API returned an empty weather list");
     };
+
+    let is_day = (response.sys.sunrise..response.sys.sunset).contains(&response.dt);
+    let weather_id = weather.id;
+
     let icon = spawn_blocking(move || {
-        let is_day = (response.sys.sunrise..response.sys.sunset).contains(&response.dt);
-        let icon = Icons::from_openweather_id(weather.id, is_day)?;
+        let icon = Icons::from_openweather_id(weather_id, is_day)?;
         let image = image::load_from_memory(icon.as_bytes())?;
 
         anyhow::Ok(image.into())

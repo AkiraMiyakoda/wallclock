@@ -97,11 +97,11 @@ impl Drop for DrawContext {
 
 impl DrawContext {
     fn new() -> anyhow::Result<Self> {
-        // Open DRM device
+        // Open the DRM device.
         let settings::Drm { device } = settings::drm();
         let card = Card(OpenOptions::new().read(true).write(true).open(device)?);
 
-        // Get DRM related resources
+        // Get DRM resources.
         let resources = card.resource_handles()?;
         let connector = resources
             .connectors()
@@ -131,7 +131,7 @@ impl DrawContext {
             })
             .ok_or(anyhow!("CRTC not found"))?;
 
-        // Create frame buffer
+        // Create the framebuffer.
         let dumb_buffer = card.create_dumb_buffer(SCREEN_DIMENSIONS.into(), DrmFourcc::Xrgb8888, 32)?;
         let frame_buffer = card.add_framebuffer(&dumb_buffer, 32, 32)?;
 
@@ -192,7 +192,8 @@ pub async fn worker() -> anyhow::Result<()> {
             // Fade in after each 5-minute cycle.
             alpha = (sub_second * 255 / 1000).saturating_as();
         } else if cycle_end {
-            // Fade out before each 5-minute cycle. If no next wallpaper is ready, the same one fades back in.
+            // Fade out before each 5-minute cycle.
+            // If no next wallpaper is ready, the same one fades back in.
             alpha = 255 - (sub_second * 255 / 1000).saturating_as::<u8>();
         } else if Some(second) == last_second {
             // Draw a frame once a second if not fading.
@@ -323,56 +324,11 @@ fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) 
     assert!(src.as_ptr().addr().is_multiple_of(64));
     assert!(dst.as_ptr().addr().is_multiple_of(64));
 
+    // SAFETY: This program is only supported on Zen 4 systems.
+    // Both buffers are 64-byte aligned, have the same length,
+    // and the length is a multiple of 64 bytes.
     unsafe {
-        // Set up alpha
-        let zero = _mm512_setzero_si512();
-        let alpha_mask = _mm512_set1_epi32(0xff00_0000_u32.cast_signed());
-
-        let alpha_8x16 = _mm512_set1_epi8(alpha.cast_signed());
-        let alpha_16x16 = (
-            _mm512_unpacklo_epi8(alpha_8x16, zero),
-            _mm512_unpackhi_epi8(alpha_8x16, zero),
-        );
-
-        let mut psrc: *const __m512i = src.as_ptr().cast();
-        let mut pdst: *mut __m512i = dst.as_mut_ptr().cast();
-
-        for _ in 0..(src.len() / 64) {
-            // Load a 16-pixel row from src
-            let src_8x16 = _mm512_load_si512(psrc);
-
-            // Unpack each channel to 16bit (lo, hi)
-            let src_16x16 = (
-                _mm512_unpacklo_epi8(src_8x16, zero),
-                _mm512_unpackhi_epi8(src_8x16, zero),
-            );
-
-            // dst = (src * a)
-            let dst_16x16 = (
-                _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
-                _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
-            );
-
-            // dst = (dst + (dst >> 8) + 1) >> 8
-            let dst_16x16 = (
-                _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
-                _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
-            );
-            let dst_16x16 = (
-                _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
-                _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
-            );
-            let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
-
-            // Store the result
-            let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
-            let dst_8x16 = _mm512_or_si512(dst_8x16, alpha_mask);
-
-            _mm512_store_si512(pdst, dst_8x16);
-
-            psrc = psrc.add(1);
-            pdst = pdst.add(1);
-        }
+        copy_image_with_alpha_avx512(src.as_ref(), dst.as_mut(), alpha);
     }
 }
 
@@ -439,6 +395,115 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
     let left_end = simd_l.min(r);
     let right_start = simd_r.max(left_end);
 
+    if simd_l < simd_r {
+        // SAFETY: `AlignedImage` is 64-byte aligned, rows are 16-pixel aligned,
+        // and `simd_l..simd_r` is inside the image and aligned to 16 pixels.
+        unsafe {
+            fill_rect_avx512(dst, simd_l, t, simd_r, b, color);
+        }
+    }
+
+    fill_rect_scalar(dst, l, t, left_end, b, color);
+    fill_rect_scalar(dst, right_start, t, r, b, color);
+}
+
+fn fill_rect_scalar(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
+    for y in t..b {
+        for x in l..r {
+            dst.get_pixel_mut(x, y).blend(&color);
+        }
+    }
+}
+
+fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
+    assert!(x.is_multiple_of(16));
+    assert!(src.width().is_multiple_of(16));
+    assert!(src.as_ptr().addr().is_multiple_of(64));
+    assert!(dst.as_ptr().addr().is_multiple_of(64));
+    assert!(x.checked_add(src.width()).is_some_and(|r| r <= dst.width()));
+    assert!(
+        y.checked_add(src.height())
+            .is_some_and(|b| b <= dst.height())
+    );
+
+    // SAFETY: Both images are 64-byte aligned. `x` and `src.width()` are
+    // multiples of 16 pixels, and the source image fits inside the destination.
+    unsafe {
+        draw_image_avx512(dst, x, y, src);
+    }
+}
+
+/// # Safety
+///
+/// `src` and `dst` must be 64-byte aligned, have the same length,
+/// and their length must be a multiple of 64.
+/// The CPU must support AVX-512F and AVX-512BW.
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn copy_image_with_alpha_avx512(src: &[u8], dst: &mut [u8], alpha: u8) {
+    debug_assert_eq!(src.len(), dst.len());
+    debug_assert!(src.len().is_multiple_of(64));
+    debug_assert!(src.as_ptr().addr().is_multiple_of(64));
+    debug_assert!(dst.as_ptr().addr().is_multiple_of(64));
+
+    unsafe {
+        // Set up alpha
+        let zero = _mm512_setzero_si512();
+        let alpha_mask = _mm512_set1_epi32(0xff00_0000_u32.cast_signed());
+
+        let alpha_8x16 = _mm512_set1_epi8(alpha.cast_signed());
+        let alpha_16x16 = (
+            _mm512_unpacklo_epi8(alpha_8x16, zero),
+            _mm512_unpackhi_epi8(alpha_8x16, zero),
+        );
+
+        let mut psrc: *const __m512i = src.as_ptr().cast();
+        let mut pdst: *mut __m512i = dst.as_mut_ptr().cast();
+
+        for _ in 0..(src.len() / 64) {
+            // Load a 16-pixel row from src
+            let src_8x16 = _mm512_load_si512(psrc);
+
+            // Unpack each channel to 16bit (lo, hi)
+            let src_16x16 = (
+                _mm512_unpacklo_epi8(src_8x16, zero),
+                _mm512_unpackhi_epi8(src_8x16, zero),
+            );
+
+            // dst = src * a / 255
+            let dst_16x16 = (
+                _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
+                _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
+            );
+            let dst_16x16 = div_255_avx512(dst_16x16);
+
+            // Store the result
+            let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
+            let dst_8x16 = _mm512_or_si512(dst_8x16, alpha_mask);
+
+            _mm512_store_si512(pdst, dst_8x16);
+
+            psrc = psrc.add(1);
+            pdst = pdst.add(1);
+        }
+    }
+}
+
+/// # Safety
+///
+/// `dst` must be 64-byte aligned.
+/// `l` and `r` must be multiples of 16.
+/// The rectangle must be inside `dst`.
+/// The CPU must support AVX-512F and AVX-512BW.
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn fill_rect_avx512(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba<u8>) {
+    debug_assert!(dst.as_ptr().addr().is_multiple_of(64));
+    debug_assert!(l.is_multiple_of(16));
+    debug_assert!(r.is_multiple_of(16));
+    debug_assert!(l <= r);
+    debug_assert!(t <= b);
+    debug_assert!(r <= dst.width());
+    debug_assert!(b <= dst.height());
+
     unsafe {
         #[rustfmt::skip]
         let shuffle_mask = _mm512_set_epi8(
@@ -464,10 +529,10 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
         );
 
         for y in t..b {
-            let dst_offset = (y * dst.stride() + simd_l * 4) as usize;
+            let dst_offset = (y * dst.stride() + l * 4) as usize;
             let mut pdst: *mut __m512i = dst.as_mut_ptr().add(dst_offset).cast();
 
-            for _ in (simd_l / 16)..(simd_r / 16) {
+            for _ in (l / 16)..(r / 16) {
                 // Load a 16-pixel row from dst
                 let dst_8x16 = _mm512_load_si512(pdst);
 
@@ -477,30 +542,7 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
                     _mm512_unpackhi_epi8(dst_8x16, zero),
                 );
 
-                // dst = (src * a + dst * (255 - a))
-                let src_16x16 = (
-                    _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
-                    _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
-                );
-                let dst_16x16 = (
-                    _mm512_mullo_epi16(dst_16x16.0, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.0)),
-                    _mm512_mullo_epi16(dst_16x16.1, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.1)),
-                );
-                let dst_16x16 = (
-                    _mm512_add_epi16(src_16x16.0, dst_16x16.0),
-                    _mm512_add_epi16(src_16x16.1, dst_16x16.1),
-                );
-
-                // dst = (dst + (dst >> 8) + 1) >> 8
-                let dst_16x16 = (
-                    _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
-                    _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
-                );
-                let dst_16x16 = (
-                    _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
-                    _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
-                );
-                let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
+                let dst_16x16 = blend_src_over_dst_avx512(src_16x16, dst_16x16, alpha_16x16);
 
                 // Store the result
                 let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
@@ -512,25 +554,22 @@ fn fill_rect(dst: &mut AlignedImage, l: u32, t: u32, r: u32, b: u32, color: Rgba
             }
         }
     }
-
-    for y in t..b {
-        for x in l..left_end {
-            dst.get_pixel_mut(x, y).blend(&color);
-        }
-
-        for x in right_start..r {
-            dst.get_pixel_mut(x, y).blend(&color);
-        }
-    }
 }
 
-fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
-    assert!(x.is_multiple_of(16));
-    assert!(src.width().is_multiple_of(16));
-    assert!(src.as_ptr().addr().is_multiple_of(64));
-    assert!(dst.as_ptr().addr().is_multiple_of(64));
-    assert!(x.checked_add(src.width()).is_some_and(|r| r <= dst.width()));
-    assert!(
+/// # Safety
+///
+/// `src` and `dst` must be 64-byte aligned.
+/// `x` and `src.width()` must be multiples of 16.
+/// The source image must fit inside `dst` at `(x, y)`.
+/// The CPU must support AVX-512F and AVX-512BW.
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn draw_image_avx512(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
+    debug_assert!(x.is_multiple_of(16));
+    debug_assert!(src.width().is_multiple_of(16));
+    debug_assert!(src.as_ptr().addr().is_multiple_of(64));
+    debug_assert!(dst.as_ptr().addr().is_multiple_of(64));
+    debug_assert!(x.checked_add(src.width()).is_some_and(|r| r <= dst.width()));
+    debug_assert!(
         y.checked_add(src.height())
             .is_some_and(|b| b <= dst.height())
     );
@@ -584,30 +623,7 @@ fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
                     _mm512_unpackhi_epi8(alpha_8x16, zero),
                 );
 
-                // dst = (src * a + dst * (255 - a))
-                let src_16x16 = (
-                    _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
-                    _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
-                );
-                let dst_16x16 = (
-                    _mm512_mullo_epi16(dst_16x16.0, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.0)),
-                    _mm512_mullo_epi16(dst_16x16.1, _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.1)),
-                );
-                let dst_16x16 = (
-                    _mm512_add_epi16(src_16x16.0, dst_16x16.0),
-                    _mm512_add_epi16(src_16x16.1, dst_16x16.1),
-                );
-
-                // dst = (dst + (dst >> 8) + 1) >> 8
-                let dst_16x16 = (
-                    _mm512_add_epi16(dst_16x16.0, _mm512_srli_epi16(dst_16x16.0, 8)),
-                    _mm512_add_epi16(dst_16x16.1, _mm512_srli_epi16(dst_16x16.1, 8)),
-                );
-                let dst_16x16 = (
-                    _mm512_add_epi16(dst_16x16.0, _mm512_set1_epi16(1)),
-                    _mm512_add_epi16(dst_16x16.1, _mm512_set1_epi16(1)),
-                );
-                let dst_16x16 = (_mm512_srli_epi16(dst_16x16.0, 8), _mm512_srli_epi16(dst_16x16.1, 8));
+                let dst_16x16 = blend_src_over_dst_avx512(src_16x16, dst_16x16, alpha_16x16);
 
                 // Store the result
                 let dst_8x16 = _mm512_packus_epi16(dst_16x16.0, dst_16x16.1);
@@ -620,4 +636,52 @@ fn draw_image(dst: &mut AlignedImage, x: u32, y: u32, src: &AlignedImage) {
             }
         }
     }
+}
+
+// Blend 16 pixels with source-over alpha:
+// dst = (src * a + dst * (255 - a)) / 255.
+#[inline]
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn blend_src_over_dst_avx512(
+    src_16x16: (__m512i, __m512i), dst_16x16: (__m512i, __m512i), alpha_16x16: (__m512i, __m512i),
+) -> (__m512i, __m512i) {
+    unsafe {
+        let inv_alpha_16x16 = (
+            _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.0),
+            _mm512_sub_epi16(_mm512_set1_epi16(255), alpha_16x16.1),
+        );
+
+        let src_16x16 = (
+            _mm512_mullo_epi16(src_16x16.0, alpha_16x16.0),
+            _mm512_mullo_epi16(src_16x16.1, alpha_16x16.1),
+        );
+        let dst_16x16 = (
+            _mm512_mullo_epi16(dst_16x16.0, inv_alpha_16x16.0),
+            _mm512_mullo_epi16(dst_16x16.1, inv_alpha_16x16.1),
+        );
+        let dst_16x16 = (
+            _mm512_add_epi16(src_16x16.0, dst_16x16.0),
+            _mm512_add_epi16(src_16x16.1, dst_16x16.1),
+        );
+
+        div_255_avx512(dst_16x16)
+    }
+}
+
+// Divide 16-bit color channels by 255 with rounding.
+// This is used after alpha multiplication.
+#[inline]
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn div_255_avx512(v: (__m512i, __m512i)) -> (__m512i, __m512i) {
+    // (x + (x >> 8) + 1) >> 8
+    let v = (
+        _mm512_add_epi16(v.0, _mm512_srli_epi16(v.0, 8)),
+        _mm512_add_epi16(v.1, _mm512_srli_epi16(v.1, 8)),
+    );
+    let v = (
+        _mm512_add_epi16(v.0, _mm512_set1_epi16(1)),
+        _mm512_add_epi16(v.1, _mm512_set1_epi16(1)),
+    );
+
+    (_mm512_srli_epi16(v.0, 8), _mm512_srli_epi16(v.1, 8))
 }

@@ -24,6 +24,7 @@ pub struct AlignedImage {
 
 impl AlignedImage {
     pub fn new(width: u32, height: u32) -> Self {
+        // Keep each row 64-byte aligned for AVX-512 operations and the renderer.
         assert!(width.is_multiple_of(16));
 
         Self {
@@ -75,16 +76,17 @@ impl AlignedImage {
 
 impl From<DynamicImage> for AlignedImage {
     fn from(value: DynamicImage) -> Self {
+        // Keep each row 64-byte aligned for AVX-512 operations and the renderer.
         assert!(value.width().is_multiple_of(16));
 
-        // Convert a dynamic image to an RGBA bitmap
+        // Convert a dynamic image to an RGBA bitmap.
         let image = value.into_rgba8();
         let mut data = AVec::from_slice(CACHELINE_ALIGN, &image);
         assert!(data.len().is_multiple_of(64));
 
-        // Convert from RGBA to BGRA as required by the renderer
+        // Convert from RGBA to BGRA as required by the renderer.
         // SAFETY: This program is only supported on Zen 4 systems.
-        // `data` is allocated with cache-line alignment, and the width invariant
+        // The slice comes from a cache-line-aligned AVec, and the width invariant
         // ensures the buffer length is a multiple of 64 bytes.
         unsafe {
             rgba_to_bgra_avx512(&mut data);
@@ -98,8 +100,12 @@ impl From<DynamicImage> for AlignedImage {
     }
 }
 
+/// # Safety
+///
+/// `data` must be 64-byte aligned, its length must be a multiple of 64,
+/// and the CPU must support AVX-512F and AVX-512BW.
 #[target_feature(enable = "avx512f,avx512bw")]
-unsafe fn rgba_to_bgra_avx512(data: &mut AVec<u8>) {
+unsafe fn rgba_to_bgra_avx512(data: &mut [u8]) {
     debug_assert!((data.as_ptr() as usize).is_multiple_of(64));
     debug_assert!(data.len().is_multiple_of(64));
 
@@ -134,7 +140,7 @@ impl Deref for AlignedImage {
 
 impl DerefMut for AlignedImage {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.data.deref_mut()
+        &mut self.data
     }
 }
 
