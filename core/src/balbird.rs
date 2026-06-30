@@ -21,12 +21,11 @@ use crate::settings;
 
 #[derive(Debug, Deserialize)]
 struct BalbirdResponse {
-    #[allow(dead_code)]
     system: SystemStatus,
     database: DatabaseStatus,
 }
 
-#[allow(dead_code)]
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Deserialize)]
 struct SystemStatus {
     used_memory_bytes: u64,
@@ -53,6 +52,9 @@ struct TableStatus {
 #[derive(Debug)]
 pub struct BalbirdData {
     pub is_healthy: bool,
+    pub memory_usage_percent: Option<f64>,
+    pub swap_usage_percent: Option<f64>,
+    pub disk_usage_percent: Option<f64>,
 }
 
 static LATEST_DATA: LazyLock<ArcSwapOption<BalbirdData>> = LazyLock::new(|| ArcSwapOption::from(None));
@@ -116,7 +118,22 @@ async fn inquire() -> anyhow::Result<BalbirdData> {
         .filter(|table| table.name != "transactions")
         .filter_map(|table| table.age_seconds)
         .max();
-    let is_healthy = max_age.map_or(false, |age| age < 60);
+    let is_healthy = max_age.is_some_and(|age| age < 60);
+    let system = response.system;
 
-    Ok(BalbirdData { is_healthy })
+    Ok(BalbirdData {
+        is_healthy,
+        memory_usage_percent: usage_percent(system.used_memory_bytes, system.total_memory_bytes),
+        swap_usage_percent: usage_percent(system.used_swap_bytes, system.total_swap_bytes),
+        disk_usage_percent: usage_percent(system.used_disk_bytes, system.total_disk_bytes),
+    })
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn usage_percent(used: u64, total: u64) -> Option<f64> {
+    if total == 0 {
+        None
+    } else {
+        Some((used as f64 / total as f64) * 100.0)
+    }
 }
