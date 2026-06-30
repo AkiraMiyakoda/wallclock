@@ -8,13 +8,13 @@ use std::fs;
 use std::sync::LazyLock;
 
 use anyhow::Context;
-use compact_str::CompactString;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct Settings {
     switchbot: SwitchBot,
     openweather: OpenWeather,
+    balbird: Balbird,
     drm: Drm,
 }
 
@@ -34,8 +34,8 @@ pub struct SwitchBotDevices {
 
 #[derive(Debug, Deserialize)]
 pub struct SwitchBotDevice {
-    pub id: CompactString,
-    pub label: CompactString,
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,8 +46,13 @@ pub struct OpenWeather {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Balbird {
+    pub api_key: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Drm {
-    pub device: CompactString,
+    pub device: String,
 }
 
 impl Settings {
@@ -72,6 +77,10 @@ pub fn switchbot() -> &'static SwitchBot {
 
 pub fn openweather() -> &'static OpenWeather {
     &INSTANCE.openweather
+}
+
+pub fn balbird() -> &'static Balbird {
+    &INSTANCE.balbird
 }
 
 pub fn drm() -> &'static Drm {

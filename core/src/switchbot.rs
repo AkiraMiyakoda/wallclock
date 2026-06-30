@@ -3,10 +3,12 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::bail;
+use arc_swap::ArcSwapOption;
 use base64::prelude::*;
 use chrono::TimeDelta;
 use chrono::Utc;
@@ -15,7 +17,6 @@ use log::info;
 use reqwest::RequestBuilder;
 use reqwest::Url;
 use serde::Deserialize;
-use tokio::sync::RwLock;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
 use tokio::try_join;
@@ -51,10 +52,10 @@ pub struct SwitchBotData {
     pub tank: WoIOSensor,
 }
 
-static LATEST_DATA: LazyLock<RwLock<Option<SwitchBotData>>> = LazyLock::new(|| RwLock::new(None));
+static LATEST_DATA: LazyLock<ArcSwapOption<SwitchBotData>> = LazyLock::new(|| ArcSwapOption::from(None));
 
-pub async fn get_latest() -> Option<SwitchBotData> {
-    *LATEST_DATA.read().await
+pub fn get_latest() -> Option<Arc<SwitchBotData>> {
+    LATEST_DATA.load_full()
 }
 
 pub async fn worker() -> anyhow::Result<()> {
@@ -75,11 +76,11 @@ pub async fn worker() -> anyhow::Result<()> {
 
         match inquire().await {
             Ok(data) => {
-                *LATEST_DATA.write().await = Some(data);
-
+                LATEST_DATA.store(Some(Arc::new(data)));
                 info!("SwitchBot updated");
             }
             Err(e) => {
+                LATEST_DATA.store(None);
                 error!("Failed to update SwitchBot data: {e:?}");
             }
         }
@@ -96,37 +97,40 @@ async fn inquire() -> anyhow::Result<SwitchBotData> {
 
     let base_url = Url::parse(BASE_URL)?;
 
-    let inner_task = async |device_id: &str| {
-        let url = base_url.join(&format!("devices/{device_id}/status"))?;
-        let response: SwitchBotResponse = REST_CLIENT
-            .get(url)
-            .auth_headers(token, secret)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-        if response.status_code != 100 {
-            bail!(
-                "SwitchBot API error for device {device_id}: {} {}",
-                response.status_code,
-                response.message
-            );
-        }
-        let Some(Body::WoIOSensor(body)) = response.body else {
-            bail!("SwitchBot API did not return WoIOSensor data for device {device_id}");
-        };
-
-        anyhow::Ok(body)
-    };
-
     let (indoor, outdoor, tank) = try_join!(
-        inner_task(&devices.indoor.id),
-        inner_task(&devices.outdoor.id),
-        inner_task(&devices.tank.id),
+        inquire_device(&base_url, &devices.indoor.id, token, secret),
+        inquire_device(&base_url, &devices.outdoor.id, token, secret),
+        inquire_device(&base_url, &devices.tank.id, token, secret),
     )?;
 
     Ok(SwitchBotData { indoor, outdoor, tank })
+}
+
+async fn inquire_device(base_url: &Url, device_id: &str, token: &str, secret: &str) -> anyhow::Result<WoIOSensor> {
+    let url = base_url.join(&format!("devices/{device_id}/status"))?;
+
+    let response: SwitchBotResponse = REST_CLIENT
+        .get(url)
+        .auth_headers(token, secret)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    if response.status_code != 100 {
+        bail!(
+            "SwitchBot API error for device {device_id}: {} {}",
+            response.status_code,
+            response.message
+        );
+    }
+
+    let Some(Body::WoIOSensor(body)) = response.body else {
+        bail!("SwitchBot API did not return WoIOSensor data for device {device_id}");
+    };
+
+    Ok(body)
 }
 
 trait AuthHeaders {
