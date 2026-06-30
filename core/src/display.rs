@@ -10,6 +10,7 @@ use std::fs::OpenOptions;
 use std::os::fd::AsFd;
 use std::os::fd::BorrowedFd;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -17,8 +18,6 @@ use az::SaturatingAs;
 use chrono::Local;
 use chrono::Timelike;
 use chrono::Utc;
-use compact_str::ToCompactString;
-use compact_str::format_compact;
 use cosmic_text::Align;
 use cosmic_text::Attrs;
 use cosmic_text::Buffer;
@@ -160,6 +159,22 @@ impl DrawContext {
     }
 }
 
+#[derive(Debug)]
+struct SwitchBotLabels {
+    indoor: String,
+    outdoor: String,
+    tank: String,
+}
+
+static LABELS: LazyLock<SwitchBotLabels> = LazyLock::new(|| {
+    let settings::SwitchBot { devices, .. } = settings::switchbot();
+    SwitchBotLabels {
+        indoor: devices.indoor.label.to_ascii_uppercase(),
+        outdoor: devices.outdoor.label.to_ascii_uppercase(),
+        tank: devices.tank.label.to_ascii_uppercase(),
+    }
+});
+
 pub async fn worker() -> anyhow::Result<()> {
     const NANOS_PER_SEC: u64 = 1_000_000_000;
 
@@ -213,8 +228,8 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     const TEXT_COLOR: Color = Color::rgb(255, 255, 255);
 
     let wallpaper = wallpaper::get_current().await;
-    let switchbot = switchbot::get_latest().await;
-    let openweather = openweather::get_latest().await;
+    let switchbot = switchbot::get_latest();
+    let openweather = openweather::get_latest();
 
     block_in_place(|| {
         // Draw wallpaper
@@ -237,9 +252,9 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
         // Draw time and date
         let datetime = Local::now();
         let lines = (
-            datetime.format("%H").to_compact_string(),
-            datetime.format("%M").to_compact_string(),
-            datetime.format("%S").to_compact_string(),
+            datetime.format("%H").to_string(),
+            datetime.format("%M").to_string(),
+            datetime.format("%S").to_string(),
         );
         draw_text(ctx, &lines.0, 525, 420, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
         draw_text(ctx, &lines.1, 525, 730, 300.0, TEXT_COLOR, TextAnchor::BottomRight);
@@ -248,51 +263,43 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
         let lines = (
             datetime
                 .format("%b %e, %Y")
-                .to_compact_string()
+                .to_string()
                 .to_ascii_uppercase(),
-            datetime
-                .format("%a")
-                .to_compact_string()
-                .to_ascii_uppercase(),
+            datetime.format("%a").to_string().to_ascii_uppercase(),
         );
         draw_text(ctx, &lines.0, 2400, 100, 140.0, TEXT_COLOR, TextAnchor::TopRight);
         draw_text(ctx, &lines.1, 2400, 280, 140.0, TEXT_COLOR, TextAnchor::TopRight);
 
         // Draw SwitchBot measurements
         if let Some(data) = switchbot {
-            let settings::SwitchBot { devices, .. } = settings::switchbot();
-
             let lines = (
-                devices.indoor.label.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.indoor.temperature),
-                format_compact!("{:.0}", data.indoor.humidity),
+                format!("{:.1}", data.indoor.temperature),
+                format!("{:.0}", data.indoor.humidity),
             );
-            draw_text(ctx, &lines.0, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.1, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &LABELS.indoor, 160, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.0, 370, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "°C", 410, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            draw_text(ctx, &lines.2, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &lines.1, 370, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "%", 430, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                devices.outdoor.label.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.outdoor.temperature),
-                format_compact!("{:.0}", data.outdoor.humidity),
+                format!("{:.1}", data.outdoor.temperature),
+                format!("{:.0}", data.outdoor.humidity),
             );
-            draw_text(ctx, &lines.0, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.1, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &LABELS.outdoor, 640, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.0, 850, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "°C", 890, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            draw_text(ctx, &lines.2, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &lines.1, 850, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "%", 910, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
             let lines = (
-                devices.tank.label.to_ascii_uppercase(),
-                format_compact!("{:.1}", data.tank.temperature),
-                format_compact!("{:.0}", data.tank.humidity),
+                format!("{:.1}", data.tank.temperature),
+                format!("{:.0}", data.tank.humidity),
             );
-            draw_text(ctx, &lines.0, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.1, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &LABELS.tank, 1110, 1110, 80.0, TEXT_COLOR, TextAnchor::TopLeft);
+            draw_text(ctx, &lines.0, 1320, 1360, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "°C", 1370, 1355, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
-            draw_text(ctx, &lines.2, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
+            draw_text(ctx, &lines.1, 1330, 1500, 110.0, TEXT_COLOR, TextAnchor::BottomRight);
             draw_text(ctx, "%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
@@ -302,7 +309,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
 
             let lines = (
                 data.description.to_ascii_uppercase(),
-                format_compact!("{}", WithCommas::from(data.pressure)),
+                format!("{}", WithCommas::from(data.pressure)),
             );
             draw_text(ctx, &lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
             draw_text(ctx, &lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);

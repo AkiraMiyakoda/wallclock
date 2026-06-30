@@ -4,11 +4,14 @@
 // https://opensource.org/licenses/MIT
 
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use mimalloc::MiMalloc;
 use reqwest::Client;
+use reqwest::ClientBuilder;
 use tokio::select;
 
+mod balbird;
 mod display;
 mod image;
 mod openweather;
@@ -48,7 +51,12 @@ const SCREEN_DIMENSIONS: Dimensions = Dimensions {
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static REST_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+static REST_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    ClientBuilder::new()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("Failed to create REST client")
+});
 
 #[tokio::main(worker_threads = 2)]
 async fn main() -> anyhow::Result<()> {
@@ -59,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
     select! {
         result = switchbot::worker() => result,
         result = openweather::worker() => result,
+        result = balbird::worker() => result,
         result = wallpaper::worker() => result,
         result = display::worker() => result,
     }

@@ -9,15 +9,13 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use anyhow::bail;
+use arc_swap::ArcSwapOption;
 use chrono::TimeDelta;
 use chrono::Utc;
-use compact_str::CompactString;
-use compact_str::ToCompactString;
 use log::error;
 use log::info;
 use reqwest::Url;
 use serde::Deserialize;
-use tokio::sync::RwLock;
 use tokio::task::spawn_blocking;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
@@ -254,7 +252,7 @@ struct WeatherResponse {
 #[derive(Debug, Deserialize)]
 struct Weather {
     id: i32,
-    description: CompactString,
+    description: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -271,14 +269,14 @@ struct Sys {
 #[derive(Debug)]
 pub struct OpenWeatherData {
     pub icon: AlignedImage,
-    pub description: CompactString,
+    pub description: String,
     pub pressure: i32,
 }
 
-static LATEST_DATA: LazyLock<RwLock<Option<Arc<OpenWeatherData>>>> = LazyLock::new(|| RwLock::new(None));
+static LATEST_DATA: LazyLock<ArcSwapOption<OpenWeatherData>> = LazyLock::new(|| ArcSwapOption::from(None));
 
-pub async fn get_latest() -> Option<Arc<OpenWeatherData>> {
-    LATEST_DATA.read().await.clone()
+pub fn get_latest() -> Option<Arc<OpenWeatherData>> {
+    LATEST_DATA.load_full()
 }
 
 pub async fn worker() -> anyhow::Result<()> {
@@ -299,12 +297,11 @@ pub async fn worker() -> anyhow::Result<()> {
 
         match inquire().await {
             Ok(data) => {
-                let data = Arc::new(data);
-                *LATEST_DATA.write().await = Some(data);
-
+                LATEST_DATA.store(Some(Arc::new(data)));
                 info!("OpenWeather updated");
             }
             Err(e) => {
+                LATEST_DATA.store(None);
                 error!("Failed to update OpenWeather: {e:?}");
             }
         }
@@ -319,8 +316,8 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
 
     let settings::OpenWeather { lat, lon, api_key } = settings::openweather();
 
-    let lat = lat.to_compact_string();
-    let lon = lon.to_compact_string();
+    let lat = lat.to_string();
+    let lon = lon.to_string();
     let params = [
         ("lat", lat.as_str()),
         ("lon", lon.as_str()),
@@ -336,6 +333,8 @@ async fn inquire() -> anyhow::Result<OpenWeatherData> {
         .error_for_status()?
         .json()
         .await?;
+
+    // Use the first weather condition as the primary display value.
     let Some(weather) = response.weather.into_iter().next() else {
         bail!("OpenWeather API returned an empty weather list");
     };
