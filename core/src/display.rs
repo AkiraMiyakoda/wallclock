@@ -333,7 +333,7 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
 
             let lines = (
                 data.description.to_ascii_uppercase(),
-                format!("{}", WithCommas::from(data.pressure)),
+                format!("{}", WithCommas::primitive(data.pressure)),
             );
             draw_text(ctx, &lines.0, 2055, 1340, 70.0, TEXT_COLOR, TextAnchor::BottomCenter);
             draw_text(ctx, &lines.1, 2100, 1500, 105.0, TEXT_COLOR, TextAnchor::BottomRight);
