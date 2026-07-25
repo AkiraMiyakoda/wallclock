@@ -5,7 +5,6 @@
 
 #[allow(clippy::wildcard_imports)]
 use std::arch::x86_64::*;
-use std::borrow::Cow;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::os::fd::AsFd;
@@ -48,7 +47,6 @@ use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
 
 use crate::SCREEN_DIMENSIONS;
-use crate::balbird;
 use crate::image::AlignedImage;
 use crate::openweather;
 use crate::settings;
@@ -232,7 +230,6 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     let wallpaper = wallpaper::get_current().await;
     let switchbot = switchbot::get_latest();
     let openweather = openweather::get_latest();
-    let balbird = balbird::get_latest();
 
     block_in_place(|| {
         // Draw wallpaper
@@ -248,9 +245,8 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
 
         // Draw background frames
         fill_rect(&mut ctx.back_buffer, 50, 50, 880, 750, RECT_COLOR);
-        fill_rect(&mut ctx.back_buffer, 1530, 50, 2510, 270, RECT_COLOR);
+        fill_rect(&mut ctx.back_buffer, 1010, 50, 2510, 370, RECT_COLOR);
         fill_rect(&mut ctx.back_buffer, 50, 1060, 1550, 1550, RECT_COLOR);
-        fill_rect(&mut ctx.back_buffer, 1730, 320, 2510, 810, RECT_COLOR);
         fill_rect(&mut ctx.back_buffer, 1600, 860, 2510, 1550, RECT_COLOR);
 
         // Draw time and date
@@ -265,10 +261,10 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
         draw_text(ctx, &lines.2, 575, 700, 150.0, TEXT_COLOR, TextAnchor::BottomLeft);
 
         let text = datetime
-            .format("%a, %b %e, %Y")
+            .format("%Y.%m.%d %a")
             .to_string()
             .to_ascii_uppercase();
-        draw_text(ctx, &text, 2400, 100, 90.0, TEXT_COLOR, TextAnchor::TopRight);
+        draw_text(ctx, &text, 2400, 100, 180.0, TEXT_COLOR, TextAnchor::TopRight);
 
         // Draw SwitchBot measurements
         if let Some(data) = switchbot {
@@ -303,30 +299,6 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
             draw_text(ctx, "%", 1390, 1495, 80.0, TEXT_COLOR, TextAnchor::BottomLeft);
         }
 
-        // Draw Balbird server status
-        let health = match &balbird {
-            Some(data) if data.is_healthy => "HEALTHY",
-            Some(_) => "STALE",
-            None => "OFFLINE",
-        };
-        draw_text(ctx, "SERVER", 1830, 380, 60.0, TEXT_COLOR, TextAnchor::TopLeft);
-        draw_text(ctx, health, 2400, 380, 60.0, TEXT_COLOR, TextAnchor::TopRight);
-
-        if let Some(data) = balbird {
-            let lines = (
-                format_percent(data.memory_usage_percent),
-                format_percent(data.swap_usage_percent),
-                format_percent(data.disk_usage_percent),
-            );
-
-            draw_text(ctx, "MEM", 1830, 480, 60.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.0, 2400, 480, 60.0, TEXT_COLOR, TextAnchor::TopRight);
-            draw_text(ctx, "SWAP", 1830, 580, 60.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.1, 2400, 580, 60.0, TEXT_COLOR, TextAnchor::TopRight);
-            draw_text(ctx, "DISK", 1830, 680, 60.0, TEXT_COLOR, TextAnchor::TopLeft);
-            draw_text(ctx, &lines.2, 2400, 680, 60.0, TEXT_COLOR, TextAnchor::TopRight);
-        }
-
         // Draw OpenWeather measurements
         if let Some(data) = openweather {
             draw_image(&mut ctx.back_buffer, 1888, 920, &data.icon);
@@ -347,13 +319,6 @@ async fn draw(ctx: &mut DrawContext, alpha: u8) -> anyhow::Result<()> {
     })?;
 
     Ok(())
-}
-
-fn format_percent<'a>(percent: Option<f64>) -> Cow<'a, str> {
-    match percent {
-        Some(percent) => format!("{percent:.1} %").into(),
-        None => "-- %".into(),
-    }
 }
 
 fn copy_image_with_alpha(src: &AlignedImage, dst: &mut AlignedImage, alpha: u8) {

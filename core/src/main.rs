@@ -11,7 +11,6 @@ use reqwest::Client;
 use reqwest::ClientBuilder;
 use tokio::select;
 
-mod balbird;
 mod display;
 mod image;
 mod openweather;
@@ -54,6 +53,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 static REST_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     ClientBuilder::new()
         .timeout(Duration::from_secs(10))
+        .cookie_store(true)
         .build()
         .expect("Failed to create REST client")
 });
@@ -67,7 +67,6 @@ async fn main() -> anyhow::Result<()> {
     select! {
         result = switchbot::worker() => result,
         result = openweather::worker() => result,
-        result = balbird::worker() => result,
         result = wallpaper::worker() => result,
         result = display::worker() => result,
     }
