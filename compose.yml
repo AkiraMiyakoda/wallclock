@@ -22,7 +22,7 @@ services:
     volumes:
       - /usr/share/zoneinfo/Asia/Tokyo:/etc/localtime:ro
     devices:
-      - /dev/dri/card0:/dev/dri/card0
+      - ${DRI_DEVICE_PATH}:${DRI_DEVICE_PATH}
     stop_grace_period: 0.5s
     tty: true
 
